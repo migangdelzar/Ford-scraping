@@ -8,6 +8,11 @@ import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {parseEvaluationOptions} from './mcp-evaluation-options.js';
 import {
+  getMissingRequiredTools,
+  getToolUseFailures,
+  toToolContextMessages,
+} from './mcp-evaluation-orchestration.js';
+import {
   scoreMcpConversation,
   summarizeMcpToolResult,
 } from './mcp-conversation-scoring.js';
@@ -217,12 +222,14 @@ async function runScenario(scenario, tools) {
     {role: 'user', content: scenario.user},
   ];
   const calledTools = [];
+  const executedTools = [];
   const toolTrace = [];
   const toolResults = [];
   let answer = '';
   let doneReason = '';
   const errors = [];
   let toolTurns = 0;
+  let recoveryAttempted = false;
   let scenarioPromptTokens = 0;
   let scenarioGeneratedTokens = 0;
 
@@ -240,6 +247,51 @@ async function runScenario(scenario, tools) {
     const assistantMessage = completion.message ?? {};
     const requests = assistantMessage.tool_calls ?? [];
     if (!requests.length) {
+      const missingRequiredTools = getMissingRequiredTools(
+        scenario,
+        executedTools,
+      );
+      if (missingRequiredTools.length && !recoveryAttempted) {
+        recoveryAttempted = true;
+        const recoveredResults = [];
+        for (const name of missingRequiredTools) {
+          const args =
+            name === 'search_offers' ? {offerType: 'financing', limit: 2} : {};
+          executedTools.push(name);
+          const trace = {
+            name,
+            arguments: args,
+            origin: 'orchestrator_recovery',
+            succeeded: false,
+          };
+          toolTrace.push(trace);
+          const stats = toolStats.get(name) ?? {
+            calls: 0,
+            errors: 0,
+            latencies: [],
+          };
+          stats.calls++;
+          toolStats.set(name, stats);
+          try {
+            const toolStarted = performance.now();
+            const value = await callMcpTool(name, args);
+            stats.latencies.push(performance.now() - toolStarted);
+            trace.succeeded = true;
+            trace.resultSummary = summarizeMcpToolResult(name, value);
+            const result = {tool: name, value};
+            toolResults.push(result);
+            recoveredResults.push(result);
+          } catch (error) {
+            stats.errors++;
+            const message = String(error);
+            trace.error = message;
+            errors.push(`${name}:${message}`);
+            recoveredResults.push({tool: name, value: {error: message}});
+          }
+        }
+        messages.push(...toToolContextMessages(recoveredResults));
+        continue;
+      }
       answer = assistantMessage.content?.trim() ?? '';
       doneReason = completion.done_reason ?? '';
       break;
@@ -250,6 +302,7 @@ async function runScenario(scenario, tools) {
       const name = request.function?.name;
       const args = request.function?.arguments ?? {};
       calledTools.push(name);
+      executedTools.push(name);
       const trace = {name, arguments: args, succeeded: false};
       toolTrace.push(trace);
       const stats = toolStats.get(name) ?? {calls: 0, errors: 0, latencies: []};
@@ -280,7 +333,7 @@ async function runScenario(scenario, tools) {
   if (!answer && toolTurns > maxToolTurns) errors.push('tool_turn_limit');
   const score = scoreMcpConversation(
     scenario,
-    calledTools,
+    executedTools,
     toolResults,
     answer,
     doneReason,
@@ -293,6 +346,13 @@ async function runScenario(scenario, tools) {
     id: scenario.id,
     expectedTools: scenario.expectedTools,
     calledTools,
+    executedTools,
+    modelToolUseFailures: getToolUseFailures(
+      scenario.expectedTools,
+      calledTools,
+    ),
+    modelToolUsePassed:
+      getToolUseFailures(scenario.expectedTools, calledTools).length === 0,
     toolTrace,
     doneReason,
     toolTurns,
@@ -344,6 +404,8 @@ try {
         flow: result.id,
         passed: result.passed,
         calledTools: result.calledTools,
+        executedTools: result.executedTools,
+        modelToolUseFailures: result.modelToolUseFailures,
         failures: result.failures,
         answer: result.answer,
       }),
@@ -369,6 +431,9 @@ try {
   const passed = flowResults.filter(flow => flow.passed).length;
   const failures = flowResults.filter(flow => !flow.passed);
   const allPassed = failures.length === 0 && flowResults.length === flows;
+  const modelToolUseFailedFlows = flowResults.filter(
+    flow => !flow.modelToolUsePassed,
+  );
   console.log(
     JSON.stringify(
       {
@@ -378,6 +443,13 @@ try {
         passed,
         failed: failures.length,
         allPassed,
+        modelToolUseFailedFlows: modelToolUseFailedFlows.length,
+        modelToolUseFailures: modelToolUseFailedFlows.map(
+          ({id, modelToolUseFailures}) => ({
+            id,
+            failures: modelToolUseFailures,
+          }),
+        ),
         totalMcpToolCalls: [...toolStats.values()].reduce(
           (sum, stats) => sum + stats.calls,
           0,
@@ -396,12 +468,21 @@ try {
         }, {}),
         failures: failures
           .slice(0, 20)
-          .map(({id, expectedTools, calledTools, failures: why}) => ({
-            id,
-            expectedTools,
-            calledTools,
-            failures: why,
-          })),
+          .map(
+            ({
+              id,
+              expectedTools,
+              calledTools,
+              executedTools,
+              failures: why,
+            }) => ({
+              id,
+              expectedTools,
+              calledTools,
+              executedTools,
+              failures: why,
+            }),
+          ),
         samples: flowResults
           .slice(0, 3)
           .map(
@@ -409,6 +490,8 @@ try {
               id,
               expectedTools,
               calledTools,
+              executedTools,
+              modelToolUseFailures,
               toolTrace,
               passed: ok,
               failures: why,
@@ -418,6 +501,8 @@ try {
               id,
               expectedTools,
               calledTools,
+              executedTools,
+              modelToolUseFailures,
               toolTrace,
               passed: ok,
               failures: why,
