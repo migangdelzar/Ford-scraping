@@ -237,6 +237,14 @@ export function scoreMcpConversation(
     failures.push('leaked_source_format');
   }
 
+  if (
+    calledTools.includes('compare_vehicles') &&
+    toolResults.some(result => result.tool === 'compare_vehicles') &&
+    comparisonResults(toolResults).length === 0
+  ) {
+    failures.push('empty_comparison_results');
+  }
+
   for (const vehicle of comparisonResults(toolResults)) {
     const price = Number(vehicle.price);
     if (!Number.isFinite(price)) continue;

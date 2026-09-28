@@ -6,6 +6,14 @@ import {
   type McpServices,
 } from '../../src/mcp/server.js';
 
+function schemaAccepts(tool: {inputSchema?: unknown}, input: unknown): boolean {
+  const schema = tool.inputSchema as {
+    safeParse(value: unknown): {success: boolean};
+  };
+  if (!schema) throw new Error('Tool input schema is missing');
+  return schema.safeParse(input).success;
+}
+
 function services(): McpServices {
   return {
     search: {
@@ -30,6 +38,60 @@ function services(): McpServices {
 }
 
 describe('MCP server', () => {
+  it('documents the required nested year field for comparison model selectors', () => {
+    const tools = registerMcpTools(
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      services(),
+    );
+
+    expect(tools.compare_vehicles.description).toContain(
+      'each item uses `year`, not `modelYear`',
+    );
+  });
+
+  it('rejects comparison arguments with unsupported singular model selectors', () => {
+    const server = new McpServer({name: 'ford-uruapan', version: '0.1.0'});
+    const tools = registerMcpTools(server, services());
+
+    expect(
+      schemaAccepts(tools.compare_vehicles, {
+        model: 'TRANSIT VAN',
+        modelYear: 2026,
+      }),
+    ).toBe(false);
+  });
+
+  it('distinguishes exact vehicle variants and vehicle vs offer prices', () => {
+    const tools = registerMcpTools(
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      services(),
+    );
+
+    expect(tools.search_vehicle_and_offers.description).toContain(
+      'Never claim a requested variant unless vehicles.results has that exact model',
+    );
+    expect(tools.search_vehicle_and_offers.description).toContain(
+      'do not substitute offers.results cashPriceDisplay for vehicles.results priceDisplay',
+    );
+  });
+
+  it('routes financing-only requests to search_offers even with a budget', () => {
+    const tools = registerMcpTools(
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      services(),
+    );
+
+    expect(tools.search_vehicle_and_offers.description).toContain(
+      'A budget by itself does not mean the buyer asked for vehicle recommendations',
+    );
+    expect(tools.search_offers.description).toContain(
+      'Use this when a named model is already known and the buyer asks only about financing',
+    );
+    expect(tools.search_vehicle_and_offers.description).toContain(
+      'Copy answerSummary as the canonical concise response',
+    );
+  });
+
   it('describes how LLM clients must form financing search arguments', () => {
     const tools = registerMcpTools(
       new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
@@ -107,7 +169,7 @@ describe('MCP server', () => {
           modelYear: 2026,
           title: 'Plan F-150',
           validityStatus: 'unknown',
-          cashPrice: 1_180_000,
+          cashPrice: 1_300_000,
           monthlyPayment: 30_000,
           currency: 'MXN',
         },
@@ -152,13 +214,35 @@ describe('MCP server', () => {
       'F-150 HÍBRIDA 2026: MXN $1,180,000',
     );
     expect(combined.answerSummary).toBe(
-      'F-150 HÍBRIDA 2026: MXN $1,180,000. Plan F-150. Precio de contado: MXN $1,180,000. Mensualidad: MXN $30,000. La vigencia no está confirmada.',
+      'F-150 HÍBRIDA 2026: MXN $1,180,000. Plan F-150. Precio de contado: MXN $1,300,000. Mensualidad: MXN $30,000. La vigencia no está confirmada. Excede el presupuesto de MXN $1,200,000.',
     );
     expect(combined.offers.requiredDisclosures).toContain(
       'Plan F-150: La vigencia no está confirmada.',
     );
     expect(combined.vehicles.results).toHaveLength(1);
     expect(combined.offers.results).toHaveLength(1);
+    expect(combined.answerSummary).toContain('Excede el presupuesto');
+  });
+
+  it('states explicit outcomes in combined summaries when either result is empty', async () => {
+    const deps = services();
+    const tools = registerMcpTools(
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      deps,
+    );
+    const response = (await (
+      tools.search_vehicle_and_offers.handler as unknown as (
+        input: unknown,
+        context: unknown,
+      ) => Promise<{content: {text: string}[]}>
+    )({model: 'BRONCO RAPTOR', modelYear: 2026, budget: 2_140_500}, {})) as {
+      content: {text: string}[];
+    };
+    const combined = JSON.parse(response.content[0].text);
+
+    expect(combined.answerSummary).toBe(
+      'No se encontró el vehículo o variante exactos. No se encontraron ofertas de financiamiento.',
+    );
   });
 
   it('builds a vehicle query from filters when the LLM omits query', async () => {
@@ -599,23 +683,18 @@ describe('MCP server', () => {
     ]);
   });
 
-  it('handles a singular model/year comparison request without failing', async () => {
-    const deps = services();
+  it('rejects a singular model/year comparison request', async () => {
     const tools = registerMcpTools(
       new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
-      deps,
+      services(),
     );
 
-    const response = (await (
-      tools.compare_vehicles.handler as unknown as (
-        input: unknown,
-        context: unknown,
-      ) => Promise<{content: {text: string}[]}>
-    )({model: 'TRANSIT VAN', modelYear: 2026}, {})) as {
-      content: {text: string}[];
-    };
-
-    expect(JSON.parse(response.content[0].text)).toEqual([]);
+    expect(
+      schemaAccepts(tools.compare_vehicles, {
+        model: 'TRANSIT VAN',
+        modelYear: 2026,
+      }),
+    ).toBe(false);
   });
 
   it('resolves model/year pairs before comparing vehicles', async () => {

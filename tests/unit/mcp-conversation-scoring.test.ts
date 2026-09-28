@@ -308,6 +308,17 @@ describe('scoreMcpConversation', () => {
     ).toEqual({passed: true, failures: []});
   });
 
+  it('rejects an empty comparison result for a named-model comparison request', () => {
+    const score = scoreMcpConversation(
+      {expectedTools: ['compare_vehicles']},
+      ['compare_vehicles'],
+      [{tool: 'compare_vehicles', value: []}],
+      'No hay vehículos encontrados para comparar.',
+    );
+
+    expect(score.failures).toContain('empty_comparison_results');
+  });
+
   it('does not treat an unconfirmed validity date as a disclosed term conflict', () => {
     const score = scoreMcpConversation(
       {expectedTools: ['search_offers']},

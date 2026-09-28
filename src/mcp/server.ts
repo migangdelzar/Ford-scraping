@@ -408,7 +408,7 @@ export function registerMcpTools(
     {
       title: 'Search Ford vehicles and financing together',
       description:
-        'Use this single tool when a buyer asks for both vehicle options and financing, especially with a named model, year, or budget. It searches in parallel and returns the top matching vehicle and top financing offer to keep the lead response focused. answerSummary combines their buyer-facing facts and required disclosures. The separate search tools return more results when requested. Only apply buyer-stated model, year, and budget.',
+        'Use this single tool only when the buyer asks for both vehicle options or recommendations and financing. A budget by itself does not mean the buyer asked for vehicle recommendations; a financing-only request for a known model belongs to search_offers, even when a budget is stated. It searches in parallel and returns the top matching vehicle and top financing offer to keep the lead response focused. Copy answerSummary as the canonical concise response; it combines vehicle and offer facts with required disclosures. The separate search tools return more results when requested. Only apply buyer-stated model, year, and budget. Preserve variant words such as HÍBRIDA, RAPTOR, SPORT, CHASIS, and VAN in the model filter. The vehicle and offer results are separate records and can have different prices. Never claim a requested variant unless vehicles.results has that exact model. Quote vehicle price from vehicles.results priceDisplay and offer cash price from offers.results cashPriceDisplay; do not substitute offers.results cashPriceDisplay for vehicles.results priceDisplay.',
       inputSchema: z.object({
         query: z.string().min(1).optional(),
         model: z.string().min(1).optional(),
@@ -481,11 +481,25 @@ export function registerMcpTools(
             };
           })
         : [];
+      const firstOffer = offerResults[0];
+      const offerSummary =
+        typeof firstOffer?.buyerSummary === 'string'
+          ? [
+              firstOffer.buyerSummary,
+              input.budget !== undefined &&
+              typeof firstOffer.cashPrice === 'number' &&
+              firstOffer.cashPrice > input.budget
+                ? `Excede el presupuesto de ${priceDisplay(input.budget, 'MXN')}.`
+                : undefined,
+            ]
+              .filter((item): item is string => Boolean(item))
+              .join(' ')
+          : undefined;
       const answerSummary = [
-        vehicleSummary ? `${vehicleSummary}.` : undefined,
-        typeof offerResults[0]?.buyerSummary === 'string'
-          ? offerResults[0].buyerSummary
-          : undefined,
+        vehicleSummary
+          ? `${vehicleSummary}.`
+          : 'No se encontró el vehículo o variante exactos.',
+        offerSummary ?? 'No se encontraron ofertas de financiamiento.',
       ]
         .filter((item): item is string => Boolean(item))
         .join(' ');
@@ -538,17 +552,30 @@ export function registerMcpTools(
     {
       title: 'Compare Ford vehicles',
       description:
-        'Compare two to five Ford vehicles by price, specifications, and features when available. Returns up to three specifications and features per vehicle. Copy priceDisplay exactly when quoting prices. Prefer models with exact model names and years; use ids only when returned by another tool.',
-      inputSchema: z.object({
-        ids: z.array(z.string().min(1)).min(2).max(5).optional(),
-        models: z
-          .array(z.object({model: z.string().min(1), year: z.number().int()}))
-          .min(2)
-          .max(5)
-          .optional(),
-        model: z.string().min(1).optional(),
-        modelYear: z.number().int().optional(),
-      }),
+        'Compare two to five Ford vehicles by price, specifications, and features when available. Returns up to three specifications and features per vehicle. Copy priceDisplay exactly when quoting prices. For named models, provide `models` with exact model names and years; each item uses `year`, not `modelYear`. Example: models: [{model: "TERRITORY", year: 2026}, {model: "RANGER", year: 2026}]. Use `ids` only when at least two ids came from another tool. Provide either `models` or `ids`, never a singular top-level model selector.',
+      inputSchema: z
+        .object({
+          ids: z.array(z.string().min(1)).min(2).max(5).optional(),
+          models: z
+            .array(
+              z.object({
+                model: z.string().min(1),
+                year: z
+                  .number()
+                  .int()
+                  .describe(
+                    'Required model year for this item; the property is named year, not modelYear.',
+                  ),
+              }),
+            )
+            .min(2)
+            .max(5)
+            .optional(),
+        })
+        .strict()
+        .refine(input => Boolean(input.ids || input.models), {
+          message: 'Provide either ids or models to compare vehicles',
+        }),
     },
     async input => {
       if (input.ids && input.models) {
@@ -591,8 +618,6 @@ export function registerMcpTools(
             return resolveModel(selector[1], Number(selector[2]));
           }),
         );
-      } else if (input.model && input.modelYear !== undefined) {
-        return result([]);
       } else {
         throw new Error('Provide ids or models to compare vehicles');
       }
@@ -632,7 +657,7 @@ export function registerMcpTools(
     {
       title: 'Search Ford financing and structured offers',
       description:
-        "Use for financing plans and structured commercial offers. Dealer promotions are listed separately by list_promotions. For finance searches set offerType: 'financing'. A query can be omitted; the server builds one from filters. Put filters in the filters object; top-level model, modelYear, offerType, maxCashPrice, and common filter fields are also accepted. Use the exact model name and modelYear when named; these filters are enforced on returned offers. Result limit defaults to 2. State each validityDisclosure and termConflictDisclosure when present; explain both terms and say they differ.",
+        "Use for financing plans and structured commercial offers. Use this when a named model is already known and the buyer asks only about financing, monthly payment, down payment, or cash price, even when they state a budget. Dealer promotions are listed separately by list_promotions. For finance searches set offerType: 'financing'. A query can be omitted; the server builds one from filters. Put filters in the filters object; top-level model, modelYear, offerType, maxCashPrice, and common filter fields are also accepted. Use the exact model name and modelYear when named; these filters are enforced on returned offers. Result limit defaults to 2. State each validityDisclosure and termConflictDisclosure when present; explain both terms and say they differ.",
       inputSchema: z.object({
         query: z
           .string()
