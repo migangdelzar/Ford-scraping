@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+playwright-report/
+test-results/
+coverage/
+*.log
+.firecrawl/
+eval-results/
+evals/multistep-leads/ragas/.venv/
+
+.tgrep/

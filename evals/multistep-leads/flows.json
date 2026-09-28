@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "flows": [
+    {
+      "id": "explicit-context",
+      "tags": ["explicit_request", "context_present"],
+      "userTurns": [
+        "Estoy buscando una Ranger para viajar con mi familia y quiero saber qué opciones hay.",
+        "Quiero hablar con un especialista de Ford sobre la Ranger para viajar con mi familia. Compártele esa necesidad."
+      ],
+      "expected": {
+        "handoff": "required",
+        "consent": "not_required",
+        "resolutionAttemptsMax": 0,
+        "payloadFields": ["reason", "vehicle", "needs"],
+        "finalHandoff": "succeeded"
+      }
+    },
+    {
+      "id": "explicit-sparse",
+      "tags": ["explicit_request", "sparse_context"],
+      "userTurns": [
+        "Quiero hablar con un especialista de Ford, por favor."
+      ],
+      "expected": {
+        "handoff": "required",
+        "consent": "not_required",
+        "resolutionAttemptsMax": 0,
+        "payloadFields": ["reason"],
+        "finalHandoff": "succeeded"
+      }
+    },
+    {
+      "id": "buying-intent-consent",
+      "tags": ["buying_intent", "consented"],
+      "userTurns": [
+        "Estoy listo para comprar una Territory este mes. Busco espacio para mi familia y quiero revisar opciones disponibles.",
+        "Sí, quiero que me conectes con un especialista para seguir con la compra."
+      ],
+      "expected": {
+        "handoff": "required",
+        "consent": "required",
+        "resolutionAttemptsMax": 0,
+        "payloadFields": ["reason", "vehicle", "needs"],
+        "finalHandoff": "succeeded"
+      }
+    },
+    {
+      "id": "test-drive-consent",
+      "tags": ["appointment_interest", "consented"],
+      "userTurns": [
+        "Me interesa hacer una prueba de manejo de la Bronco Sport. ¿Qué opciones hay?",
+        "Sí, conéctame con un especialista para ver la prueba de manejo."
+      ],
+      "expected": {
+        "handoff": "required",
+        "consent": "required",
+        "resolutionAttemptsMax": 0,
+        "payloadFields": ["reason", "vehicle", "needs"],
+        "finalHandoff": "succeeded"
+      }
+    },
+    {
+      "id": "conflicting-offer-terms",
+      "tags": ["unresolved_data", "conflicting_terms", "consented"],
+      "userTurns": [
+        "Estoy viendo EXPEDITION Active - 60-month financing para una EXPEDITION 2026. El nombre del plan indica 24 meses, pero el plazo registrado es de 60 meses. ¿Puedes revisar cuál aplica?",
+        "Sí, quiero hablar con un especialista para aclarar si el plazo correcto es de 24 o 60 meses."
+      ],
+      "expected": {
+        "handoff": "required",
+        "consent": "required",
+        "resolutionAttemptsMax": 1,
+        "payloadFields": ["reason", "vehicle", "unresolvedQuestion"],
+        "finalHandoff": "succeeded"
+      }
+    },
+    {
+      "id": "unavailable-offer-validity",
+      "tags": ["unresolved_data", "validity_unknown", "consented"],
+      "userTurns": [
+        "¿Sigue vigente EXPEDITION Active - 60-month financing para la EXPEDITION 2026? Los datos muestran la vigencia sin confirmar. ¿Puedes revisar si hay una fecha comprobable?",
+        "Sí, conéctame con un especialista para confirmar la vigencia de esa oferta."
+      ],
+      "expected": {
+        "handoff": "required",
+        "consent": "required",
+        "resolutionAttemptsMax": 1,
+        "payloadFields": ["reason", "vehicle", "unresolvedQuestion"],
+        "finalHandoff": "succeeded"
+      }
+    },
+    {
+      "id": "resolved-offer-data",
+      "tags": ["resolved_data", "no_handoff"],
+      "userTurns": [
+        "Quiero verificar la oferta Territory 12 meses sin intereses para Territory 2026. La fecha registrada de vigencia es 2026-10-31. ¿Puedes revisar los datos disponibles y explicarme las condiciones confirmadas?"
+      ],
+      "expected": {
+        "handoff": "forbidden",
+        "consent": "not_required",
+        "resolutionAttemptsMax": 1,
+        "payloadFields": [],
+        "finalHandoff": "not_called"
+      }
+    },
+    {
+      "id": "routine-specification",
+      "tags": ["routine_question", "no_handoff"],
+      "userTurns": [
+        "¿Qué características de la Territory aparecen en la información disponible?"
+      ],
+      "expected": {
+        "handoff": "forbidden",
+        "consent": "not_required",
+        "resolutionAttemptsMax": 0,
+        "payloadFields": [],
+        "finalHandoff": "not_called"
+      }
+    },
+    {
+      "id": "browsing-stage",
+      "tags": ["browsing_stage", "no_handoff"],
+      "userTurns": [
+        "Apenas estoy explorando modelos Ford. ¿Qué opciones hay para una familia?"
+      ],
+      "expected": {
+        "handoff": "forbidden",
+        "consent": "not_required",
+        "resolutionAttemptsMax": 0,
+        "payloadFields": [],
+        "finalHandoff": "not_called"
+      }
+    },
+    {
+      "id": "declined-specialist",
+      "tags": ["declined_handoff"],
+      "userTurns": [
+        "Estoy considerando una Explorer, pero todavía tengo dudas sobre las opciones disponibles.",
+        "Gracias, prefiero seguir revisando la información aquí. No quiero hablar con un especialista por ahora."
+      ],
+      "expected": {
+        "handoff": "forbidden",
+        "consent": "must_respect_decline",
+        "resolutionAttemptsMax": 0,
+        "payloadFields": [],
+        "finalHandoff": "not_called"
+      }
+    }
+  ]
+}
