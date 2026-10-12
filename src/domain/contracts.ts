@@ -2,6 +2,7 @@ export type PageType =
   | 'catalog'
   | 'model'
   | 'technical_sheet'
+  | 'comparison'
   | 'promotion'
   | 'financing'
   | 'service'
@@ -20,6 +21,15 @@ export interface StoredPage {
   extractedText: string;
   contentHash: string;
   metadata: Record<string, unknown>;
+}
+
+export interface PageLinkCandidate {
+  href: string;
+  targetUrl: string;
+  anchorText: string;
+  rel?: string;
+  internal: boolean;
+  linkType: 'internal' | 'external' | 'email' | 'phone' | 'other';
 }
 
 export interface CatalogCandidate {
@@ -53,6 +63,31 @@ export interface SpecificationCandidate {
   category?: string;
 }
 
+export interface ComparisonAttributeCandidate {
+  category: string;
+  name: string;
+  normalizedName: string;
+  valueText: string;
+  valueNumeric?: number;
+  unit?: string;
+}
+
+export interface VehicleComparisonCandidate {
+  modelName: string;
+  modelYear: number;
+  fordTrimName: string;
+  competitorMake: string;
+  competitorModel: string;
+  competitorYear?: number;
+  competitorTrim?: string;
+  fordAttributes: ComparisonAttributeCandidate[];
+  competitorAttributes: ComparisonAttributeCandidate[];
+  fordImageUrl?: string;
+  competitorImageUrl?: string;
+  sourceUrl: string;
+  rawData: Record<string, unknown>;
+}
+
 export interface VehicleCandidate {
   modelName: string;
   modelYear: number;
@@ -61,7 +96,17 @@ export interface VehicleCandidate {
   sections: Record<string, string>;
   specifications: SpecificationCandidate[];
   features: Array<{name: string; description?: string; category?: string}>;
-  images: Array<{url: string; altText?: string}>;
+  images: Array<{
+    url: string;
+    altText?: string;
+    imageType?: string;
+    width?: number;
+    height?: number;
+  }>;
+  variants?: Array<{
+    name: string;
+    externalId?: string;
+  }>;
   sourceUrl: string;
 }
 
@@ -71,6 +116,8 @@ export interface DocumentCandidate {
   chunkIndex?: number;
   title: string;
   content: string;
+  semanticContent?: string;
+  variantId?: string;
   modelName?: string;
   modelYear?: number;
   offerId?: string;
@@ -104,6 +151,10 @@ export interface OfferCandidate {
   monthsWithoutInterest?: number;
   annualInterestRate?: number;
   catPercent?: number;
+  taxRatePercent?: number;
+  openingCommissionRatePercent?: number;
+  maximumDownPaymentPercent?: number;
+  lifeInsurancePrice?: number;
   currency: string;
   validFrom?: string;
   validUntil?: string;
@@ -121,6 +172,7 @@ export interface OfferFilters {
   maxCashPrice?: number;
   maxMonthlyPayment?: number;
   maxDownPayment?: number;
+  termMonths?: number;
   minimumMonthsWithoutInterest?: number;
   asOf?: string;
   activeOnly?: boolean;
@@ -142,13 +194,20 @@ export interface OfferSearchCandidate {
   provider?: string;
   cashPrice?: number;
   monthlyPayment?: number;
+  termMonths?: number;
   monthsWithoutInterest?: number;
   annualInterestRate?: number;
+  catPercent?: number;
+  taxRatePercent?: number;
+  openingCommissionRatePercent?: number;
+  maximumDownPaymentPercent?: number;
+  lifeInsurancePrice?: number;
   validFrom?: string;
   validUntil?: string;
   validityStatus: 'active' | 'expired' | 'upcoming' | 'unknown';
   dataQualityWarnings: string[];
   sourceUrl?: string;
+  modelUrl?: string;
   crawledAt?: string;
 }
 
@@ -160,6 +219,7 @@ export interface ParseResult<T> {
 export interface SearchRequest {
   query: string;
   filters?: {
+    model?: string;
     minPrice?: number;
     maxPrice?: number;
     modelYear?: number;
@@ -178,6 +238,8 @@ export interface VehicleSearchCandidate {
   price?: number;
   category?: string;
   sourceUrl?: string;
+  modelPageUrl?: string;
+  priceSourceUrl?: string;
   crawledAt?: string;
 }
 

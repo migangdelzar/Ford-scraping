@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "source": "Ford Uruapan base-vehicle detail snapshot 2026-10-09",
+  "modelYears": [
+    {
+      "model": "BRONCO",
+      "year": 2026,
+      "specificationCount": 104,
+      "featureCount": 33
+    },
+    {
+      "model": "BRONCO RAPTOR",
+      "year": 2026,
+      "specificationCount": 39,
+      "featureCount": 38
+    },
+    {
+      "model": "BRONCO SPORT",
+      "year": 2026,
+      "specificationCount": 50,
+      "featureCount": 25
+    },
+    {
+      "model": "E TRANSIT",
+      "year": 2026,
+      "specificationCount": 52,
+      "featureCount": 42
+    },
+    {
+      "model": "EDGE HIBRIDA",
+      "year": 2027,
+      "specificationCount": 32,
+      "featureCount": 25
+    },
+    {
+      "model": "EDGE HIBRIDA",
+      "year": 2026,
+      "specificationCount": 35,
+      "featureCount": 25
+    },
+    {
+      "model": "EXPEDITION",
+      "year": 2027,
+      "specificationCount": 52,
+      "featureCount": 34
+    },
+    {
+      "model": "EXPEDITION",
+      "year": 2026,
+      "specificationCount": 51,
+      "featureCount": 33
+    },
+    {
+      "model": "EXPEDITION",
+      "year": 2025,
+      "specificationCount": 47,
+      "featureCount": 33
+    },
+    {
+      "model": "EXPLORER",
+      "year": 2026,
+      "specificationCount": 47,
+      "featureCount": 18
+    },
+    {
+      "model": "EXPLORER",
+      "year": 2025,
+      "specificationCount": 41,
+      "featureCount": 15
+    },
+    {
+      "model": "EXPLORER POLICE INTERCEPTOR",
+      "year": 2025,
+      "specificationCount": 17,
+      "featureCount": 17
+    },
+    {
+      "model": "EXPLORER ST",
+      "year": 2025,
+      "specificationCount": 14,
+      "featureCount": 14
+    },
+    {
+      "model": "F 150",
+      "year": 2026,
+      "specificationCount": 55,
+      "featureCount": 43
+    },
+    {
+      "model": "F 150 HIBRIDA",
+      "year": 2026,
+      "specificationCount": 39,
+      "featureCount": 39
+    },
+    {
+      "model": "F 250",
+      "year": 2026,
+      "specificationCount": 76,
+      "featureCount": 53
+    },
+    {
+      "model": "LOBO",
+      "year": 2026,
+      "specificationCount": 69,
+      "featureCount": 45
+    },
+    {
+      "model": "LOBO HIBRIDA",
+      "year": 2026,
+      "specificationCount": 45,
+      "featureCount": 45
+    },
+    {
+      "model": "LOBO RAPTOR",
+      "year": 2026,
+      "specificationCount": 48,
+      "featureCount": 41
+    },
+    {
+      "model": "MAVERICK HIBRIDA",
+      "year": 2026,
+      "specificationCount": 48,
+      "featureCount": 39
+    },
+    {
+      "model": "MUSTANG",
+      "year": 2026,
+      "specificationCount": 46,
+      "featureCount": 31
+    },
+    {
+      "model": "MUSTANG MACH E",
+      "year": 2026,
+      "specificationCount": 38,
+      "featureCount": 25
+    },
+    {
+      "model": "MUSTANG RTR",
+      "year": 2026,
+      "specificationCount": 25,
+      "featureCount": 25
+    },
+    {
+      "model": "POLICE INTERCEPTOR UTILITY",
+      "year": 2026,
+      "specificationCount": 10,
+      "featureCount": 10
+    },
+    {
+      "model": "POLICE INTERCEPTOR UTILITY HIBRIDA",
+      "year": 2026,
+      "specificationCount": 9,
+      "featureCount": 9
+    },
+    {
+      "model": "RANGER",
+      "year": 2027,
+      "specificationCount": 65,
+      "featureCount": 29
+    },
+    {
+      "model": "RANGER",
+      "year": 2026,
+      "specificationCount": 66,
+      "featureCount": 32
+    },
+    {
+      "model": "RANGER RAPTOR",
+      "year": 2027,
+      "specificationCount": 18,
+      "featureCount": 18
+    },
+    {
+      "model": "RANGER RAPTOR",
+      "year": 2026,
+      "specificationCount": 14,
+      "featureCount": 14
+    },
+    {
+      "model": "SUPER DUTY CHASIS",
+      "year": 2026,
+      "specificationCount": 40,
+      "featureCount": 38
+    },
+    {
+      "model": "TERRITORY",
+      "year": 2027,
+      "specificationCount": 37,
+      "featureCount": 24
+    },
+    {
+      "model": "TERRITORY",
+      "year": 2026,
+      "specificationCount": 0,
+      "featureCount": 0
+    },
+    {
+      "model": "TERRITORY HIBRIDA",
+      "year": 2027,
+      "specificationCount": 30,
+      "featureCount": 23
+    },
+    {
+      "model": "TRANSIT CHASIS",
+      "year": 2027,
+      "specificationCount": 43,
+      "featureCount": 43
+    },
+    {
+      "model": "TRANSIT CHASIS",
+      "year": 2026,
+      "specificationCount": 41,
+      "featureCount": 41
+    },
+    {
+      "model": "TRANSIT CUSTOM",
+      "year": 2026,
+      "specificationCount": 68,
+      "featureCount": 53
+    },
+    {
+      "model": "TRANSIT PASAJEROS",
+      "year": 2026,
+      "specificationCount": 35,
+      "featureCount": 34
+    },
+    {
+      "model": "TRANSIT VAN",
+      "year": 2027,
+      "specificationCount": 56,
+      "featureCount": 56
+    },
+    {
+      "model": "TRANSIT VAN",
+      "year": 2026,
+      "specificationCount": 55,
+      "featureCount": 55
+    }
+  ]
+}

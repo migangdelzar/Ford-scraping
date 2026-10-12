@@ -11,8 +11,13 @@ function services(): McpServices {
         semanticSearch: 'unavailable',
       }),
     },
-    vehicles: {getByModelYear: vi.fn(), compare: vi.fn()},
+    vehicles: {
+      getByModelYear: vi.fn(),
+      getAvailableModelYears: vi.fn().mockResolvedValue([]),
+      compare: vi.fn(),
+    },
     provenance: {get: vi.fn()},
+    links: {getPageLinks: vi.fn().mockResolvedValue(null)},
     promotions: {list: vi.fn()},
     offers: {
       searchOffers: vi.fn().mockResolvedValue({
@@ -22,6 +27,7 @@ function services(): McpServices {
       }),
     },
     catalog: {status: vi.fn()},
+    comparisons: {compareTrims: vi.fn(), compareModelYears: vi.fn(), getVariantComparisons: vi.fn()},
   };
 }
 

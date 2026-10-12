@@ -1,6 +1,10 @@
 node_modules/
 dist/
 .env
+backups/*.dump
+backups/*.sha256
+reports/
+.wrangler/
 playwright-report/
 test-results/
 coverage/

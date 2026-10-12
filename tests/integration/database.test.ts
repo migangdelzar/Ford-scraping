@@ -1,6 +1,7 @@
 import {beforeAll, afterAll, describe, expect, it} from 'vitest';
 import type {Pool} from 'pg';
 import {createPool} from '../../src/storage/database.js';
+import {integrationDatabaseUrl} from './integration-database.js';
 import {
   PageRepository,
   type FetchedPage,
@@ -9,9 +10,7 @@ import {CatalogRepository} from '../../src/storage/catalog-repository.js';
 import {DocumentRepository} from '../../src/storage/document-repository.js';
 import type {CatalogCandidate} from '../../src/domain/contracts.js';
 
-const databaseUrl =
-  process.env.DATABASE_URL ??
-  'postgres://postgres:postgres@localhost:5432/ford';
+const databaseUrl = integrationDatabaseUrl();
 let pool: Pool;
 let pages: PageRepository;
 let catalog: CatalogRepository;

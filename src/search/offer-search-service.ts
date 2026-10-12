@@ -56,6 +56,7 @@ export class OfferSearchService {
             embedding,
             candidates,
             limit * 3,
+            this.embeddingProvider.model,
           );
           semanticSearch = 'ready';
         } catch {

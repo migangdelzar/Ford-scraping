@@ -89,8 +89,11 @@ describe('page parsers', () => {
       seguridad: 'Incluye asistencia al conductor.',
     });
     expect(result.value.images[0]).toEqual({
-      url: 'https://www.forduruapan.mx/images/territory.webp',
+      url: 'https://www.forduruapan.mx/Assets/ModelosNuevos/Img/Modelos/Territory.webp',
       altText: 'Ford Territory blanca',
+      width: undefined,
+      height: undefined,
+      imageType: 'model',
     });
   });
 
@@ -102,7 +105,18 @@ describe('page parsers', () => {
       url: 'https://www.forduruapan.mx/TERRITORY/26/',
     });
 
-    expect(result.value.modelName).toBe('TERRITORY');
+    expect(result.value.modelName).toBe('Territory');
+  });
+
+  it('reads the abbreviated model year from the Ford model URL', () => {
+    const result = parseModelPage({
+      ...readPage('model.html', 'model'),
+      title: 'RANGER RAPTOR | Ford Uruapan',
+      rawHtml: '<main><p>Ranger Raptor description.</p></main>',
+      url: 'https://www.forduruapan.mx/RANGER-RAPTOR/27/',
+    });
+
+    expect(result.value.modelYear).toBe(2027);
   });
 
   it('extracts table and definition-list technical specifications', () => {
@@ -257,7 +271,7 @@ describe('page parsers', () => {
         <div class="txt-promocion">
           <h4>Bronco Sport 2026</h4>
           <p>Sujeto a análisis de crédito por parte de Ford Credit.</p>
-          <p>Bono de $100,000.00 para Ford Bronco Sport 2026.</p>
+          <p>Bono de $100,000.00 (CIEN MIL PESOS 00/100 M.N.) para Ford Bronco Sport 2026.</p>
         </div>
       </div>`,
     });
@@ -265,17 +279,20 @@ describe('page parsers', () => {
     expect(result.value.offers).toEqual([
       expect.objectContaining({
         title: 'Bronco Sport 2026',
+        offerType: 'promotion',
         modelName: 'Bronco Sport',
         modelYear: 2026,
         discountAmount: 100000,
+        termMonths: undefined,
         validFrom: '2026-09-01',
         validUntil: '2026-09-30',
-        sourceUrl: 'https://www.forduruapan.mx/BRONCO-SPORT/26/',
+        sourceUrl: 'https://www.forduruapan.mx/promotion.html',
       }),
     ]);
     expect(result.value.offers[0].metadata).toMatchObject({
       extraction: 'live-promo-item',
       externalPromotionId: '2261',
+      modelUrl: 'https://www.forduruapan.mx/BRONCO-SPORT/26/',
     });
   });
 

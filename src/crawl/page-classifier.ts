@@ -4,8 +4,10 @@ export function classifyPage(url: URL, title: string, text: string): PageType {
   const path = url.pathname.toLocaleLowerCase('es-MX');
   const haystack = `${title} ${text}`.toLocaleLowerCase('es-MX');
 
+  if (path.includes('aviso-de-privacidad')) return 'unknown';
   if (path.includes('/todos')) return 'catalog';
   if (path.includes('ficha-tecnica')) return 'technical_sheet';
+  if (/\/comparativo\//.test(path)) return 'comparison';
   if (path.includes('promocion')) return 'promotion';
   if (path.includes('financiamiento')) return 'financing';
   if (path.includes('/servicio')) return 'service';

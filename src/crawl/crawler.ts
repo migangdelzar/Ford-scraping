@@ -2,9 +2,10 @@ import {createHash} from 'node:crypto';
 import {load} from 'cheerio';
 import {chromium, type Browser, type Page} from 'playwright';
 import {classifyPage} from './page-classifier.js';
+import {extractPageLinks} from './page-links.js';
 import {parseCatalogPage} from '../parsers/catalog-parser.js';
 import {
-  isAllowedPublicUrl,
+  isCrawlablePublicPage,
   normalizeUrl,
   type CrawlPolicy,
 } from './url-policy.js';
@@ -65,7 +66,7 @@ export async function crawlTargets(
 
   while (queue.length && visited.size < options.maxPages) {
     const url = queue.shift()!;
-    if (visited.has(url) || !isAllowedPublicUrl(new URL(url), options.policy))
+    if (visited.has(url) || !isCrawlablePublicPage(new URL(url), options.policy))
       continue;
     visited.add(url);
     try {
@@ -76,20 +77,18 @@ export async function crawlTargets(
         summary.changed += 1;
         summary.changedPages.push(change.page);
       }
-      const $ = load(fetched.rawHtml);
-      if (!['catalog', 'model', 'technical_sheet'].includes(fetched.pageType)) {
-        $('a[href]').each((_, element) => {
-          const rawHref = $(element).attr('href');
-          if (!rawHref) return;
-          const child = normalizeUrl(
-            new URL(rawHref, url).toString(),
-            options.policy.baseUrl,
-          );
-          if (isAllowedPublicUrl(new URL(child), options.policy)) {
-            discovered.add(child);
-            if (!visited.has(child)) queue.push(child);
-          }
-        });
+      for (const link of extractPageLinks(fetched.rawHtml, url)) {
+        if (!link.internal) continue;
+        // Follow model facts and their linked Comparativo pages; unrelated
+        // public links remain available via get_page_links.
+        if (!['catalog', 'model', 'technical_sheet'].includes(fetched.pageType))
+          continue;
+        const child = normalizeUrl(link.targetUrl, options.policy.baseUrl);
+        if (isCrawlablePublicPage(new URL(child), options.policy)) {
+          if (!isCatalogRoute(new URL(child))) continue;
+          discovered.add(child);
+          if (!visited.has(child)) queue.push(child);
+        }
       }
       if (fetched.pageType === 'catalog') {
         for (const vehicle of parseCatalogPage({
@@ -98,7 +97,7 @@ export async function crawlTargets(
           pageType: 'catalog',
         }).value) {
           const child = normalizeUrl(vehicle.sourceUrl, options.policy.baseUrl);
-          if (!isAllowedPublicUrl(new URL(child), options.policy)) continue;
+          if (!isCrawlablePublicPage(new URL(child), options.policy)) continue;
           discovered.add(child);
           if (!visited.has(child)) queue.push(child);
         }
@@ -113,7 +112,7 @@ export async function crawlTargets(
             ).toString(),
             options.policy.baseUrl,
           );
-          if (isAllowedPublicUrl(new URL(detailUrl), options.policy)) {
+          if (isCrawlablePublicPage(new URL(detailUrl), options.policy)) {
             discovered.add(detailUrl);
             if (!visited.has(detailUrl)) queue.push(detailUrl);
           }
@@ -130,6 +129,16 @@ export async function crawlTargets(
 
   summary.discoveredUrls = [...discovered];
   return summary;
+}
+
+function isCatalogRoute(url: URL): boolean {
+  const path = url.pathname.toLocaleLowerCase('es-MX');
+  return (
+    path.includes('/todos') ||
+    path.includes('ficha-tecnica') ||
+    path.includes('/comparativo/') ||
+    /\/(20\d{2}|2\d)\/?$/.test(path)
+  );
 }
 
 export class PlaywrightPageFetcher implements PageFetcher {

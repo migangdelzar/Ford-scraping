@@ -18,9 +18,19 @@ const REJECTED_PATH_PARTS = [
   'agendar',
 ];
 
+const NON_PAGE_EXTENSIONS = /\.(?:avif|css|gif|ico|jpe?g|js|pdf|png|svg|webp|woff2?|ttf|eot|mp4|webm)$/i;
+
 export interface CrawlPolicy {
   baseUrl: URL;
   allowedHosts: Set<string>;
+}
+
+export function stripComparisonSelectorParamsFromText(value: string): string {
+  return value.replace(
+    /((?:https?:\/\/[^"'<>\s]+)?\/[^"'<>\s]*\/(?:20\d{2}|\d{2})\/Comparativo\/[^"'<>?\s]+\/?)\?([^"'<>\s]*)/gi,
+    (match, route: string, query: string) =>
+      /(?:^|&(?:amp;)?)(?:exterior|interior)=/i.test(query) ? route : match,
+  );
 }
 
 export function normalizeUrl(rawUrl: string, baseUrl: URL): string {
@@ -28,6 +38,12 @@ export function normalizeUrl(rawUrl: string, baseUrl: URL): string {
   for (const key of [...url.searchParams.keys()]) {
     if (TRACKING_PARAMETERS.has(key.toLowerCase()))
       url.searchParams.delete(key);
+  }
+  if (/^\/.+\/(?:20\d{2}|\d{2})\/comparativo\/[^/]+\/?$/i.test(url.pathname)) {
+    for (const key of [...url.searchParams.keys()]) {
+      if (['exterior', 'interior'].includes(key.toLowerCase()))
+        url.searchParams.delete(key);
+    }
   }
   url.hash = '';
   url.hostname = url.hostname.toLowerCase();
@@ -44,5 +60,20 @@ export function isAllowedPublicUrl(url: URL, policy: CrawlPolicy): boolean {
     /(submit|send|apply|solicitud|form)/.test(path + url.search)
   )
     return false;
+  return true;
+}
+
+export function isCrawlablePublicPage(url: URL, policy: CrawlPolicy): boolean {
+  if (!isAllowedPublicUrl(url, policy) || NON_PAGE_EXTENSIONS.test(url.pathname))
+    return false;
+  // Comparativo uses color selectors in its query string; allow only those
+  // parameters there so arbitrary search/filter combinations stay excluded.
+  if (url.search) {
+    if (!/^\/.+\/(?:20\d{2}|\d{2})\/comparativo\/[^/]+\/?$/i.test(url.pathname))
+      return false;
+    const allowed = new Set(['exterior', 'interior']);
+    for (const key of url.searchParams.keys())
+      if (!allowed.has(key.toLowerCase())) return false;
+  }
   return true;
 }

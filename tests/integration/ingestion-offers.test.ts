@@ -1,6 +1,7 @@
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import type {Pool} from 'pg';
 import {createPool} from '../../src/storage/database.js';
+import {integrationDatabaseUrl} from './integration-database.js';
 import {
   PageRepository,
   type FetchedPage,
@@ -10,9 +11,7 @@ import {DocumentRepository} from '../../src/storage/document-repository.js';
 import {OfferRepository} from '../../src/storage/offer-repository.js';
 import {ingestPage, ingestPages} from '../../src/crawl/ingestion.js';
 
-const databaseUrl =
-  process.env.DATABASE_URL ??
-  'postgres://postgres:postgres@localhost:5432/ford';
+const databaseUrl = integrationDatabaseUrl();
 let pool: Pool;
 const promotionPage: FetchedPage = {
   sourceBaseUrl: 'https://www.forduruapan.mx',

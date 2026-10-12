@@ -16,11 +16,15 @@ npm run migrate
 
 The default local embedding provider is Ollama with the quantized BGE-M3 model `qllama/bge-m3:q8_0`. It serves multilingual embeddings through the Docker endpoint at `http://127.0.0.1:11435/api/embed`; the host port is `11435` so an existing native Ollama installation on `11434` is not disturbed. BGE-M3 produces 1024-dimensional vectors, so the pgvector column and HNSW cosine index use `VECTOR(1024)`.
 
+Create a local database snapshot with `npm run db:backup` before database-mutating work. Dumps are stored under `backups/` and ignored by Git. See [`docs/database-backups.md`](docs/database-backups.md) for restore instructions.
+
 ## Commands
 
 ```bash
 npm run dev -- crawl --max-pages=50
+npm run dev -- crawl-comparisons
 npm run dev -- ingest
+npm run dev -- refresh-offer-documents
 npm run dev -- sync-financing
 npm run dev -- sync --max-pages=1000 --embedding-limit=100
 npm run dev -- scheduler
@@ -31,16 +35,29 @@ MCP_HTTP_BEARER_TOKEN=local-development-token npm run dev -- mcp-http
 ```
 
 Embedding is local and does not require an API key. The embedding worker is incremental and safe to rerun; unchanged ready rows are skipped and pending documents can be processed in small batches.
+`refresh-offer-documents` rebuilds semantic profiles for offers already stored in the database without calling Ford's financing endpoint.
 
 ## REST
 
 ```bash
 curl -X POST http://localhost:3000/search \
   -H 'content-type: application/json' \
-  -d '{"query":"SUV familiar con buena tecnología","filters":{"maxPrice":800000,"modelYear":2026}}'
+  -d '{"query":"SUV familiar con buena tecnología","filters":{"model":"Territory","maxPrice":800000,"modelYear":2026}}'
 ```
 
-The MCP server exposes the read-only tools `search_vehicles`, `search_offers`, `get_vehicle`, `compare_vehicles`, `get_vehicle_provenance`, `list_promotions`, and `get_catalog_status`.
+Vehicle `model` and `modelYear` filters are exact SQL constraints. Financing
+search accepts `termMonths` to constrain a stated duration before ranking.
+
+The MCP server exposes the read-only tools `search_vehicles`, `search_vehicle_and_offers`, `search_offers`, `get_vehicle`, `get_page_links`, `compare_vehicles`, `compare_trims`, `compare_model_years`, `get_variant_comparisons`, `get_vehicle_provenance`, `list_promotions`, and `get_catalog_status`. Search and vehicle detail results return direct model-page URLs separately from price-source URLs; trim and competitor comparisons return Ford's exact visual Comparativo URL. `get_vehicle` returns stored model images and source links; `get_page_links` returns every link found on a crawled page in pages of up to 200. `get_variant_comparisons` returns Ford's exact comparison page, competitor facts, and image links.
+
+Semantic vectors are generated from `ford.documents.semantic_content`; exact source evidence stays in `content` for keyword search and returned context. Structured prices, dates, trim attributes, and promotion terms remain in relational columns/JSONB and are retrieved with SQL. Empty `semantic_content` disables vector indexing for a document such as a price-only chunk. Vehicle and comparison images stay as URLs and metadata; image bytes and image URLs are never embedded.
+
+`get_vehicle` with a model year returns that exact unit. Without a year, it
+returns all model-year units stored for the exact model in `ford.model_years`,
+newest first, with each unit's available price and compact specification data.
+If the catalog has no matching units, it returns an empty option list so the
+assistant can ask for another model or clarify the request; it must not invent
+a model year.
 
 Run repeatable end-to-end MCP flow checks with `npm run eval:mcp`. By default it sends 100 simulated buyer flows (700 tool calls total) to a separate local MCP process; use `-- --flows=10 --concurrency=2` for a smaller run. The evaluator checks tool responses and a deterministic, grounded reply template. It does not invoke an LLM or change Codex MCP configuration. It needs the local `.env` and a reachable catalog database.
 
@@ -70,3 +87,7 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/ford npm run test:integ
 ```
 
 Integration tests require the local PostgreSQL container. Crawling is read-only and excludes form, contact, quote, appointment, and personal-data flows.
+
+## Catalog QA evaluations
+
+Run 192 synthetic Spanish customer-style questions across every stored Ford catalog model-year with local MCP and Ollama, then score answer quality with local RAGAS. See [the evaluation guide](docs/mcp-catalog-qa-evals.md) for setup, commands, and report interpretation.

@@ -22,6 +22,16 @@ describe('classifyPage', () => {
     ).toBe(expected);
   });
 
+  it('does not classify a year-suffixed privacy notice as a vehicle model', () => {
+    expect(
+      classifyPage(
+        new URL('https://www.forduruapan.mx/Aviso-de-Privacidad/2026/'),
+        'Aviso de Privacidad Ford 2026',
+        'Aviso de privacidad integral Ford',
+      ),
+    ).toBe('unknown');
+  });
+
   it('classifies a model page as model when its content mentions financing', () => {
     expect(
       classifyPage(

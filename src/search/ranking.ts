@@ -16,13 +16,14 @@ function normalizedScoresBy(
   keyOf: (hit: DocumentHit) => string | undefined,
 ): Map<string, number> {
   const max = Math.max(...hits.map(hit => hit.score), 0);
-  const values = hits.flatMap(hit => {
+  const values = new Map<string, number>();
+  for (const hit of hits) {
     const key = keyOf(hit);
-    return key
-      ? [[key, max <= 0 ? 0 : Math.max(0, hit.score) / max] as const]
-      : [];
-  });
-  return new Map(values);
+    if (!key) continue;
+    const normalized = max <= 0 ? 0 : Math.max(0, hit.score) / max;
+    values.set(key, Math.max(values.get(key) ?? 0, normalized));
+  }
+  return values;
 }
 
 function normalizedScores(hits: DocumentHit[]): Map<string, number> {

@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {normalizeFinancingOffers} from '../../src/finance/financing-offers.js';
+import {hashOffer, normalizeOfferCandidate} from '../../src/domain/offers.js';
 
 describe('normalizeFinancingOffers', () => {
   it('creates one structured offer per financing plan and term', () => {
@@ -59,6 +60,10 @@ describe('normalizeFinancingOffers', () => {
       termMonths: 24,
       monthsWithoutInterest: 24,
       annualInterestRate: 0,
+      taxRatePercent: 16,
+      openingCommissionRatePercent: 0,
+      maximumDownPaymentPercent: 80,
+      lifeInsurancePrice: 0,
       requiresCreditApproval: true,
       sourceUrl: 'https://www.forduruapan.mx/Financiamiento/',
     });
@@ -135,5 +140,19 @@ describe('normalizeFinancingOffers', () => {
         termConflict: {labelMonths: 24, structuredMonths: 72},
       },
     });
+  });
+
+  it('changes the offer identity when structured financing inputs change', () => {
+    const offer = normalizeOfferCandidate({
+      title: 'Example plan',
+      offerType: 'financing',
+      currency: 'MXN',
+      sourceUrl: 'https://example.com/financing',
+      annualInterestRate: 12,
+      taxRatePercent: 16,
+      requiresCreditApproval: true,
+    });
+
+    expect(hashOffer({...offer, taxRatePercent: 8})).not.toBe(hashOffer(offer));
   });
 });

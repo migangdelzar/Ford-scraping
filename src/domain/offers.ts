@@ -22,6 +22,7 @@ export interface PersistedOffer extends Omit<
   id: string;
   sourceUrl?: string;
   metadata?: Record<string, unknown>;
+  variantName?: string;
 }
 
 const OFFER_TYPES: OfferType[] = [
@@ -124,7 +125,7 @@ function money(
 export function buildOfferDocument(offer: PersistedOffer): DocumentCandidate {
   const vehicle =
     offer.modelName && offer.modelYear
-      ? `Ford ${offer.modelName} ${offer.modelYear}`
+      ? `Ford ${offer.modelName} ${offer.modelYear}${offer.variantName ? ` ${offer.variantName}` : ''}`
       : 'Ford';
   const lines = [
     vehicle,
@@ -152,6 +153,18 @@ export function buildOfferDocument(offer: PersistedOffer): DocumentCandidate {
     offer.annualInterestRate === undefined
       ? undefined
       : `Tasa anual: ${offer.annualInterestRate}%`,
+    offer.taxRatePercent === undefined
+      ? undefined
+      : `Tasa fiscal aplicada por el plan: ${offer.taxRatePercent}%`,
+    offer.openingCommissionRatePercent === undefined
+      ? undefined
+      : `Comisión de apertura informada por el plan: ${offer.openingCommissionRatePercent}%`,
+    offer.maximumDownPaymentPercent === undefined
+      ? undefined
+      : `Enganche máximo informado por el plan: ${offer.maximumDownPaymentPercent}%`,
+    offer.lifeInsurancePrice === undefined
+      ? undefined
+      : `Seguro incluido en el cálculo de mensualidad: ${money(offer.lifeInsurancePrice, offer.currency)}`,
     offer.catPercent === undefined ? undefined : `CAT: ${offer.catPercent}%`,
     offer.validFrom || offer.validUntil
       ? `Vigencia: ${offer.validFrom ?? 'sin inicio'} a ${offer.validUntil ?? 'sin fecha final'}`
@@ -164,19 +177,58 @@ export function buildOfferDocument(offer: PersistedOffer): DocumentCandidate {
     offer.description,
   ].filter((line): line is string => Boolean(line && line.trim()));
 
+  const uniqueLines = [...new Set(lines)];
+  const benefits = Array.isArray(offer.metadata?.benefits)
+    ? offer.metadata.benefits.filter(
+        (benefit): benefit is Record<string, unknown> =>
+          typeof benefit === 'object' && benefit !== null,
+      )
+    : [];
+  const semanticLines = [
+    `${offer.offerType === 'financing' ? 'Plan de financiamiento' : 'Promoción'} para ${vehicle}`,
+    offer.title
+      .replace(/\$\s*[\d,.]+/g, '')
+      .replace(/\b\d+\s*[- ]?(?:meses?|months?)\b/gi, 'plazo')
+      .trim(),
+    offer.offerType === 'financing'
+      ? 'Oferta de financiamiento para compra de vehículo.'
+      : 'Oferta comercial para compra de vehículo Ford.',
+    offer.discountAmount !== undefined || offer.discountPercent !== undefined
+      ? 'Incluye un bono o descuento sobre el precio del vehículo.'
+      : undefined,
+    offer.monthsWithoutInterest !== undefined
+      ? 'Incluye una opción de financiamiento sin intereses.'
+      : undefined,
+    offer.termMonths !== undefined || offer.monthlyPayment !== undefined
+      ? 'La oferta incluye condiciones de plazo o mensualidades.'
+      : undefined,
+    offer.requiresCreditApproval ? 'Sujeta a aprobación de crédito.' : undefined,
+    ...benefits.map(benefit => {
+      if (benefit.type === 'free_insurance')
+        return 'La promoción incluye seguro automotriz sin costo.';
+      if (benefit.type === 'deferred_first_payment')
+        return 'La promoción permite diferir el primer pago.';
+      return undefined;
+    }),
+  ].filter((line): line is string => Boolean(line));
+
   return {
     offerId: offer.id,
     documentType: 'offer',
     sectionKey: 'offer',
     chunkIndex: 0,
     title: `${vehicle} — ${offer.title}`,
-    content: lines.join('\n'),
+    content: uniqueLines.join('\n'),
+    semanticContent: [...new Set(semanticLines)].join(' '),
     modelName: offer.modelName,
     modelYear: offer.modelYear,
     metadata: {
       offerId: offer.id,
       offerType: offer.offerType,
       provider: offer.provider,
+      sourceUrl: offer.sourceUrl,
+      modelUrl: offer.metadata?.modelUrl,
+      benefitTypes: benefits.map(benefit => benefit.type),
     },
   };
 }
@@ -199,6 +251,10 @@ export function hashOffer(offer: OfferCandidate): string {
     monthsWithoutInterest: offer.monthsWithoutInterest,
     annualInterestRate: offer.annualInterestRate,
     catPercent: offer.catPercent,
+    taxRatePercent: offer.taxRatePercent,
+    openingCommissionRatePercent: offer.openingCommissionRatePercent,
+    maximumDownPaymentPercent: offer.maximumDownPaymentPercent,
+    lifeInsurancePrice: offer.lifeInsurancePrice,
     currency: offer.currency,
     validFrom: offer.validFrom,
     validUntil: offer.validUntil,

@@ -59,7 +59,10 @@ export class CatalogRepository {
     }
   }
 
-  async upsertVehicle(candidate: VehicleCandidate): Promise<VehicleRef> {
+  async upsertVehicle(
+    candidate: VehicleCandidate,
+    page?: StoredPage,
+  ): Promise<VehicleRef> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -68,6 +71,7 @@ export class CatalogRepository {
         candidate.modelName,
         candidate.modelYear,
         {
+          sourcePageId: page?.id,
           displayName: candidate.title,
         },
       );
@@ -77,6 +81,86 @@ export class CatalogRepository {
         modelName: candidate.modelName,
         modelYear: candidate.modelYear,
       };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async upsertImages(
+    ref: ModelYearRef,
+    images: VehicleCandidate['images'],
+    page: StoredPage,
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        'DELETE FROM ford.images WHERE model_year_id = $1 AND source_page_id IS NOT DISTINCT FROM $2',
+        [ref.modelYearId, page.id ?? null],
+      );
+      for (const image of images) {
+        await client.query(
+          `INSERT INTO ford.images
+             (model_year_id, url, alt_text, image_type, width, height, source_page_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (url) DO UPDATE SET
+             model_year_id = EXCLUDED.model_year_id,
+             alt_text = EXCLUDED.alt_text,
+             image_type = EXCLUDED.image_type,
+             width = EXCLUDED.width,
+             height = EXCLUDED.height,
+             source_page_id = EXCLUDED.source_page_id`,
+          [
+            ref.modelYearId,
+            image.url,
+            image.altText ?? null,
+            image.imageType ?? null,
+            image.width ?? null,
+            image.height ?? null,
+            page.id ?? null,
+          ],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async upsertVariants(
+    ref: ModelYearRef,
+    variants: NonNullable<VehicleCandidate['variants']>,
+    page: StoredPage,
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const variant of variants) {
+        await client.query(
+          `INSERT INTO ford.variants
+             (model_year_id, name, normalized_name, trim_name, source_page_id, metadata)
+           VALUES ($1, $2, $3, $2, $4, $5)
+           ON CONFLICT (model_year_id, normalized_name) DO UPDATE SET
+             name = EXCLUDED.name,
+             trim_name = EXCLUDED.trim_name,
+             source_page_id = EXCLUDED.source_page_id,
+             metadata = EXCLUDED.metadata`,
+          [
+            ref.modelYearId,
+            variant.name,
+            normalizeModelKey(variant.name),
+            page.id ?? null,
+            JSON.stringify({externalId: variant.externalId}),
+          ],
+        );
+      }
+      await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;

@@ -5,8 +5,9 @@ import {createApplication} from './composition-root.js';
 import {buildApiApp} from './api/app.js';
 import {serveMcpStdio} from './mcp/server.js';
 import {startMcpHttpServer} from './mcp/http.js';
-import {crawlCatalog, PlaywrightPageFetcher} from './crawl/crawler.js';
+import {crawlCatalog, crawlTargets, PlaywrightPageFetcher} from './crawl/crawler.js';
 import {ingestPages} from './crawl/ingestion.js';
+import {buildOfferDocument} from './domain/offers.js';
 import {EmbeddingWorker} from './embeddings/worker.js';
 import {createEmbeddingProvider} from './embeddings/provider.js';
 import cron from 'node-cron';
@@ -95,6 +96,35 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'crawl-comparisons') {
+    const links = await application.pool.query<{url: string}>(
+      `SELECT min(target_url) AS url
+       FROM ford.page_links
+       WHERE target_url ILIKE '%/Comparativo/%'
+       GROUP BY split_part(split_part(target_url, '?', 1), '#', 1)
+       ORDER BY 1`,
+    );
+    const fetcher = new PlaywrightPageFetcher(config.fordBaseUrl);
+    try {
+      const summary = await crawlTargets({
+        startUrls: links.rows.map(row => row.url),
+        policy: {
+          baseUrl: config.fordBaseUrl,
+          allowedHosts: new Set([config.fordBaseUrl.hostname]),
+        },
+        fetcher,
+        pages: application.pages,
+        maxPages: option('max-pages', config.crawl.maxPages),
+      });
+      const {changedPages: _changedPages, ...report} = summary;
+      console.error(JSON.stringify({...report, targetRoutes: links.rowCount}, null, 2));
+    } finally {
+      await fetcher.close();
+      await application.close();
+    }
+    return;
+  }
+
   if (command === 'ingest') {
     const summary = await ingestPages(
       application.pages,
@@ -102,8 +132,23 @@ async function main(): Promise<void> {
       application.documents,
       option('limit', 100),
       application.offers,
+      application.comparisonsRepo,
     );
     console.error(JSON.stringify(summary, null, 2));
+    await application.close();
+    return;
+  }
+
+  if (command === 'refresh-offer-documents') {
+    const offers = await application.offers.listForDocumentRefresh();
+    for (const offer of offers) {
+      await application.documents.upsertOfferDocument(
+        offer.ref,
+        buildOfferDocument(offer.candidate),
+        offer.pageId,
+      );
+    }
+    console.error(JSON.stringify({offersRefreshed: offers.length}));
     await application.close();
     return;
   }
@@ -190,7 +235,7 @@ async function main(): Promise<void> {
   }
 
   console.error(
-    'Commands: migrate | crawl | ingest | sync | scheduler | sync-financing | embed | api | mcp | mcp-http',
+    'Commands: migrate | crawl | crawl-comparisons | ingest | refresh-offer-documents | sync | scheduler | sync-financing | embed | api | mcp | mcp-http',
   );
   await application.close();
 }

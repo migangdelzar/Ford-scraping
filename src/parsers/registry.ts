@@ -1,6 +1,7 @@
 import type {PageParser} from '../crawl/page-parser.js';
 import type {ParseResult, StoredPage} from '../domain/contracts.js';
 import {CatalogParser} from './catalog-parser.js';
+import {ComparisonParser} from './comparison-parser.js';
 import {ModelParser} from './model-parser.js';
 import {PublicPageParser} from './public-page-parser.js';
 import {TechnicalSheetParser} from './technical-sheet-parser.js';
@@ -27,6 +28,7 @@ class UnknownParser implements PageParser<{
 export function createParserRegistry(): PageParser<unknown>[] {
   return [
     new CatalogParser(),
+    new ComparisonParser(),
     new TechnicalSheetParser(),
     new ModelParser(),
     new UsedVehicleParser(),

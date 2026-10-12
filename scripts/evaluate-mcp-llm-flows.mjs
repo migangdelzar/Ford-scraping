@@ -95,7 +95,7 @@ async function callModel(messages, tools) {
       messages,
       tools,
       stream: false,
-      options: {temperature: 0, num_predict: 320},
+      options: {temperature: 0, num_predict: 512},
     }),
     signal: AbortSignal.timeout(180_000),
   });
@@ -145,7 +145,7 @@ function createScenario(index) {
     'buen espacio y tecnología',
     'opciones de crédito',
   ][index % 5];
-  const type = index % 7;
+  const type = index % 11;
   if (type === 0) {
     return {
       id: index + 1,
@@ -197,16 +197,55 @@ function createScenario(index) {
       user: '¿Qué tan actualizado está el catálogo de Ford Uruapan y cuántos vehículos tiene?',
     };
   }
+  if (type === 6) {
+    return {
+      id: index + 1,
+      modelName,
+      expectedTools: ['get_vehicle'],
+      disallowedTools: ['search_vehicles', 'compare_vehicles', 'compare_trims', 'compare_model_years', 'get_variant_comparisons'],
+      user: `¿Qué especificaciones del ${modelName} 2026 están disponibles? Indica claramente si algún dato falta.`,
+    };
+  }
+  if (type === 7) {
+    return {
+      id: index + 1,
+      expectedTools: ['search_vehicles'],
+      disallowedTools: ['get_vehicle', 'compare_vehicles', 'compare_trims', 'compare_model_years', 'get_variant_comparisons'],
+      user: 'Busco una SUV para acampar con mi familia, espacio para equipaje y caminos de terracería. ¿Qué Ford me conviene?',
+    };
+  }
+  if (type === 8) {
+    return {
+      id: index + 1,
+      modelName: 'EXPEDITION',
+      expectedTools: ['compare_trims'],
+      disallowedTools: ['compare_vehicles', 'compare_model_years', 'get_variant_comparisons'],
+      user: 'Compara las versiones Expedition Active y King Ranch Max 2027. ¿Qué cambia?',
+    };
+  }
+  if (type === 9) {
+    return {
+      id: index + 1,
+      modelName: 'EXPEDITION',
+      expectedTools: ['compare_model_years'],
+      disallowedTools: ['compare_vehicles', 'compare_trims', 'get_variant_comparisons'],
+      user: '¿Qué diferencias hay entre Ford Expedition 2025, 2026 y 2027?',
+    };
+  }
   return {
     id: index + 1,
-    modelName,
-    expectedTools: ['get_vehicle'],
-    user: `¿Qué especificaciones del ${modelName} 2026 están disponibles? Indica claramente si algún dato falta.`,
+    modelName: 'EXPEDITION',
+    expectedTools: ['get_variant_comparisons'],
+    disallowedTools: ['compare_vehicles', 'compare_trims', 'compare_model_years'],
+    user: '¿Cómo compara Expedition King Ranch Max 2027 contra Chevrolet Tahoe? Incluye el enlace visual de Ford.',
   };
 }
 
 const systemPrompt =
   'Eres asesor de Ford Uruapan. Responde en español natural, máximo 55 palabras y nunca excedas 500 caracteres. Usa MCP y contesta solo con sus resultados. TOOL ROUTING: financiamiento solamente para modelo conocido, aunque incluya presupuesto, usa search_offers. search_vehicle_and_offers requiere que pidan tanto opciones/recomendaciones de vehículo como financiamiento. Solo vehículos: search_vehicles. Solo promociones: list_promotions. Promociones Y financiamiento: primero llama list_promotions; cuando responda, llama INMEDIATAMENTE search_offers; solo después de recibir ambas respuestas escribe al usuario. Cada herramienta exactamente una vez; nunca respondas entre llamadas ni repitas/cambies argumentos. En búsqueda combinada copia answerSummary completo tal cual, sin repetir ni añadir datos; siempre incluye el precio del vehículo o la declaración de que no hubo coincidencia exacta, y los datos/disclosures de oferta o que no se encontraron ofertas. MODEL GROUNDING: conserva literalmente variantes pedidas HÍBRIDA, RAPTOR, SPORT, CHASIS y VAN al filtrar. Si el modelo/variante devuelto no coincide exactamente, di que no se encontró la variante y no la presentes como disponible; nunca sustituyas silenciosamente por otro. PRICE GROUNDING: distingue precio de vehículo (vehicles.results[].priceDisplay) de precio de contado de oferta (offers.results[].cashPriceDisplay). Copia importes exactamente; nunca sustituyas, inventes ni conviertas. Si hay ofertas que exceden presupuesto, preséntalas e indica que lo exceden; nunca digas que no hay ofertas. Si no hay ofertas, dilo. SEARCH_OFFERS: usa offerType financing, modelo/año exactos y limit 2; presenta hasta dos. Copia cashPriceDisplay, monthlyPaymentDisplay y cada validityDisclosure/termConflictDisclosure existente. Vigencia desconocida significa literalmente "La vigencia no está confirmada"; no digas que el plazo está sin confirmar salvo que termConflictDisclosure lo indique. Si difieren plazos, indica el plazo nombrado y el estructurado. Plazo no es vigencia. No infieras promociones desde ofertas financieras. PROMOTIONS: list_promotions contiene solo promociones. Si vacío, di "No hay promociones publicadas"; no infieras promociones desde search_offers. Pon créditos solo bajo "Financiamientos". FILTERS: omite filtros opcionales desconocidos; nunca envíes null. Usa category, bodyType o fuelType solo si el usuario lo menciona. GET_VEHICLE: usa año exacto; muestra máximo tres especificaciones con valores; no enumeres features ni campos omitidos. Si missingSpecificationNames no está vacío, di solo "Falta: " y copia el primer nombre exacto. Si piden fuente, copia sourceUrl completa y exacta; no inventes enlaces ni fuentes. COMPARISON: compare_vehicles usa `models: [{model: "TERRITORY", year: 2026}, {model: "RANGER", year: 2026}]`; cada item requiere year, nunca modelYear; no uses model/modelYear de nivel superior junto con models. Si herramienta devuelve error por modelo ausente, explica que no se encontró y no compares con sustitutos. Responde con precio exacto y máximo una especificación breve por vehículo, sin lista de faltantes y en menos de 500 caracteres. HANDOFF: recopila datos requeridos y pide consentimiento explícito antes de handoff_to_specialist. Si rechaza, no llames y ofrece continuar aquí. Nunca afirmes contacto real, lead creado, cita o seguimiento confirmado: solo es simulación local. No sugieras contactar al distribuidor por datos ausentes. Sigue esquemas MCP. No menciones HTML, JSON ni detalles internos.';
+
+const routingAddendum =
+  'TOOL SPECIALIZATION: Recommendations/lifestyle -> search_vehicles. Exact model facts -> get_vehicle. Different Ford nameplates -> compare_vehicles. Trims in same model/year -> compare_trims. Same nameplate across years -> compare_model_years. Ford vs another brand from a Comparativo page -> get_variant_comparisons. Never call multiple comparison tools for one request. Do not use get_vehicle_provenance for citations already returned by another tool; it is diagnostic only. get_page_links is only for the full link list from a known page. get_catalog_status is only for catalog freshness/count questions.';
 
 const flowResults = [];
 const toolStats = new Map();
@@ -218,7 +257,7 @@ let totalElapsedMs = 0;
 async function runScenario(scenario, tools) {
   const started = performance.now();
   const messages = [
-    {role: 'system', content: systemPrompt},
+    {role: 'system', content: `${systemPrompt} ${routingAddendum}`},
     {role: 'user', content: scenario.user},
   ];
   const calledTools = [];
@@ -338,6 +377,11 @@ async function runScenario(scenario, tools) {
     answer,
     doneReason,
   );
+  const toolUseFailures = getToolUseFailures(
+    scenario.expectedTools,
+    calledTools,
+    scenario.disallowedTools ?? [],
+  );
   const elapsedMs = performance.now() - started;
   totalElapsedMs += elapsedMs;
   promptTokens += scenarioPromptTokens;
@@ -347,17 +391,13 @@ async function runScenario(scenario, tools) {
     expectedTools: scenario.expectedTools,
     calledTools,
     executedTools,
-    modelToolUseFailures: getToolUseFailures(
-      scenario.expectedTools,
-      calledTools,
-    ),
-    modelToolUsePassed:
-      getToolUseFailures(scenario.expectedTools, calledTools).length === 0,
+    modelToolUseFailures: toolUseFailures,
+    modelToolUsePassed: toolUseFailures.length === 0,
     toolTrace,
     doneReason,
     toolTurns,
-    passed: score.passed && errors.length === 0,
-    failures: [...score.failures, ...errors],
+    passed: score.passed && toolUseFailures.length === 0 && errors.length === 0,
+    failures: [...score.failures, ...toolUseFailures, ...errors],
     answer,
     elapsedMs: Math.round(elapsedMs),
     promptTokens: scenarioPromptTokens,

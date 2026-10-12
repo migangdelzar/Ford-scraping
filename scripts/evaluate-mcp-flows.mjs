@@ -7,6 +7,11 @@ import {performance} from 'node:perf_hooks';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {parseEvaluationOptions} from './mcp-evaluation-options.js';
+import {
+  getVehicleSource,
+  isCompleteVehicleDetail,
+  synthesizeFlowAnswer,
+} from './mcp-flow-answer.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const options = parseEvaluationOptions(process.argv.slice(2));
@@ -171,8 +176,6 @@ const toolNames = [
   'search_vehicles',
   'get_vehicle',
   'search_offers',
-  'compare_vehicles',
-  'get_vehicle_provenance',
   'list_promotions',
   'get_catalog_status',
 ];
@@ -220,95 +223,15 @@ async function invoke(name, args, validate) {
 }
 const money = n =>
   `MXN $${Number(n).toLocaleString('en-US', {maximumFractionDigits: 2})}`;
-function synthesize(profile, selected, detail, offers, comparison, provenance) {
-  const lines = [];
-  if (selected?.price != null) {
-    const fits = Number(selected.price) <= profile.budget;
-    lines.push(
-      `${selected.modelName} ${selected.modelYear} starts at ${money(selected.price)}; ${fits ? 'within' : 'above'} the stated ${money(profile.budget)} budget.`,
-    );
-  } else
-    lines.push(
-      `The catalog returned no vehicle price within the stated ${money(profile.budget)} budget.`,
-    );
-  if (selected?.modelName !== profile.model)
-    lines.push(
-      `The requested ${profile.model} was not among results at this budget. Search returned ${selected?.modelName ?? 'no alternative'} as another option; it does not rank alternatives by price distance.`,
-    );
-  const fin = offers?.results?.find(
-    o => o.modelName === profile.model && o.modelYear === 2026,
-  );
-  if (fin) {
-    const fits =
-      fin.cashPrice != null && Number(fin.cashPrice) <= profile.budget;
-    lines.push(
-      `Financing result: ${fin.title}; vehicle price ${money(fin.cashPrice)}, monthly ${money(fin.monthlyPayment)}, annual rate ${fin.annualInterestRate ?? 'not provided'}%. The finance vehicle price is ${fits ? 'within' : 'above'} budget.`,
-    );
-    const evidence = fin.evidence?.[0]?.content ?? '';
-    const down = evidence.match(/Enganche:\s*([\d,]+(?:\.\d+)?)\s*MXN/i)?.[1];
-    if (down) lines.push(`Listed down payment: MXN $${down}.`);
-    if (/sujeto a aprobación de crédito/i.test(evidence))
-      lines.push('Subject to credit approval.');
-    for (const warning of fin.dataQualityWarnings ?? []) {
-      flags.termConflictsDetected++;
-      lines.push(`Source-data warning: ${warning}`);
-    }
-    if (fin.validityStatus === 'unknown') {
-      flags.missingValidityDates++;
-      lines.push(
-        'The source provides no validity dates; current availability is unconfirmed.',
-      );
-    }
-    if (fin.cashPrice != null && Number(fin.cashPrice) > profile.budget)
-      flags.financingOfferOverBudget++;
-  } else
-    lines.push(
-      'No financing result was returned for the requested model and year.',
-    );
-  if (
-    Array.isArray(detail?.specifications) &&
-    Array.isArray(detail?.features) &&
-    !detail.specifications.length &&
-    !detail.features.length
-  ) {
-    flags.missingSpecsDisclosed++;
-    lines.push(
-      'The vehicle detail record has no specifications or features, so this response makes no seating, cargo, or equipment claims.',
-    );
-  } else if (detail?.specifications?.length) {
-    const spec = detail.specifications.find(
-      s => s.value_text && s.value_text !== '-',
-    );
-    if (spec)
-      lines.push(
-        `Vehicle data: ${spec.name} — ${spec.value_text}${spec.source_url ? ` (source: ${spec.source_url})` : ''}.`,
-      );
-  }
-  if (comparison?.length >= 2) {
-    const [a, b] = comparison;
-    lines.push(
-      `Price comparison: ${a.model} ${a.year} ${money(a.price)} vs ${b.model} ${b.year} ${money(b.price)}.`,
-    );
-    const specsA = new Map(
-      (a.specifications ?? []).map(s => [s.name, s.value]),
-    );
-    const shared = (b.specifications ?? []).find(
-      s => specsA.has(s.name) && specsA.get(s.name) !== s.value && s.value,
-    );
-    if (shared)
-      lines.push(
-        `Specification comparison: ${shared.name} is ${specsA.get(shared.name)} on ${a.model} and ${shared.value} on ${b.model}.`,
-      );
-  }
-  const date = provenance?.crawled_at
-    ? new Date(provenance.crawled_at).toISOString().slice(0, 10)
-    : undefined;
-  if (date)
-    lines.push(
-      `Source: ${provenance.source_url}; collected ${date}. Confirm current availability and terms with Ford Uruapan.`,
-    );
-  return lines.join(' ');
+function normalizeName(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es')
+    .trim();
 }
+const vehicleName = value => value?.modelName ?? value?.model;
+const vehicleYear = value => value?.modelYear ?? value?.year;
 async function simulate(profile) {
   const failures = [];
   const search = await invoke(
@@ -332,22 +255,19 @@ async function simulate(profile) {
   if (!search) failures.push('search_vehicles');
   const rows = search?.results ?? [];
   const selected =
-    rows.find(r => r.modelName === profile.model && r.modelYear === 2026) ??
+    rows.find(
+      r =>
+        normalizeName(vehicleName(r)) === normalizeName(profile.model) &&
+        vehicleYear(r) === 2026,
+    ) ??
     rows[0];
-  if (!selected || selected.modelName !== profile.model)
+  if (!selected || normalizeName(vehicleName(selected)) !== normalizeName(profile.model))
     flags.targetNotInBudgetResults++;
-  const chosenModel = selected?.modelName ?? profile.model;
-  const chosenYear = selected?.modelYear ?? 2026;
   const detail = await invoke(
     'get_vehicle',
-    {model: chosenModel, year: chosenYear},
+    {model: profile.model, year: 2026},
     v => {
-      if (
-        !v ||
-        !v.model_year_id ||
-        !Array.isArray(v.specifications) ||
-        !Array.isArray(v.features)
-      )
+      if (!isCompleteVehicleDetail(v))
         throw Error('vehicle detail response incomplete');
     },
   );
@@ -356,7 +276,7 @@ async function simulate(profile) {
     'search_offers',
     {
       query: `Financiamiento ${profile.model} 2026, enganche, mensualidad y tasa para ${profile.need}.`,
-      filters: {model: profile.model, modelYear: 2026, activeOnly: true},
+      filters: {model: profile.model, modelYear: 2026, offerType: 'financing', activeOnly: true},
       limit: 5,
     },
     v => {
@@ -364,7 +284,9 @@ async function simulate(profile) {
         throw Error('search_offers results is not an array');
       if (
         v.results.some(
-          r => r.modelName !== profile.model || r.modelYear !== 2026,
+          r =>
+            normalizeName(r.modelName) !== normalizeName(profile.model) ||
+            r.modelYear !== 2026,
         )
       )
         throw Error('offer search filter mismatch');
@@ -391,56 +313,17 @@ async function simulate(profile) {
     },
   );
   if (!offers) failures.push('search_offers');
-  const ids = [...new Set(rows.map(r => r.modelYearId).filter(Boolean))];
-  const primaryId = detail?.model_year_id;
-  if (primaryId && !ids.includes(primaryId)) ids.unshift(primaryId);
-  const fallbackIds = [
-    '39c77a40-f900-48ae-b948-bd3176823269',
-    'e11ae5eb-ace1-45e1-bece-228ca126c53f',
-    '96c79669-8a2e-478e-a359-bb11b8a285ff',
-  ];
-  for (const fallback of fallbackIds) {
-    if (ids.length >= 2) break;
-    if (!ids.includes(fallback)) ids.push(fallback);
-  }
-  const comparison = await invoke(
-    'compare_vehicles',
-    {ids: ids.slice(0, 2)},
-    v => {
-      if (!Array.isArray(v) || v.length < 2)
-        throw Error('compare_vehicles returned fewer than two records');
-      if (
-        v.some(
-          r => !Array.isArray(r.specifications) || !Array.isArray(r.features),
-        )
-      )
-        throw Error('comparison missing structured equipment arrays');
-    },
-  );
-  if (!comparison) failures.push('compare_vehicles');
-  const docId =
-    docByModelYearId[primaryId] ??
-    docByModelYearId[selected?.modelYearId] ??
-    '1f47d78e-4685-42e7-96ca-aa0a4dce8ca7';
-  const provenance = await invoke(
-    'get_vehicle_provenance',
-    {documentId: docId},
-    v => {
-      if (!v || !v.document_id || !v.source_url || !v.crawled_at)
-        throw Error('provenance missing source or crawl date');
-    },
-  );
-  if (!provenance) failures.push('get_vehicle_provenance');
   const promotions = await invoke(
     'list_promotions',
     {filters: {asOf: new Date().toISOString().slice(0, 10)}},
     v => {
-      if (!Array.isArray(v))
-        throw Error('list_promotions result is not an array');
-      if (v.some(o => o.offer_type === 'financing'))
+      const rows = Array.isArray(v) ? v : v?.results;
+      if (!Array.isArray(rows))
+        throw Error('list_promotions results is not an array');
+      if (rows.some(o => o.offer_type === 'financing' || o.offerType === 'financing'))
         throw Error('financing record leaked into promotions');
       if (
-        v.some(
+        rows.some(
           o =>
             !['active', 'expired', 'upcoming', 'unknown'].includes(
               o.validityStatus,
@@ -457,18 +340,34 @@ async function simulate(profile) {
       !Number.isInteger(v.pages) ||
       !Number.isInteger(v.vehicles) ||
       !Number.isInteger(v.documents) ||
-      !v.latest_crawled_at
+      typeof v.latest_crawled_at !== 'string' ||
+      Number.isNaN(Date.parse(v.latest_crawled_at))
     )
       throw Error('catalog status schema or freshness missing');
   });
   if (!status) failures.push('get_catalog_status');
-  const assistantAnswer = synthesize(
+  const fin = offers?.results?.find(
+    offer =>
+      normalizeName(offer.modelName) === normalizeName(profile.model) &&
+      offer.modelYear === 2026,
+  );
+  if (fin?.validityStatus === 'unknown') flags.missingValidityDates++;
+  if (fin?.dataQualityWarnings?.length)
+    flags.termConflictsDetected += fin.dataQualityWarnings.length;
+  if (fin?.cashPrice != null && Number(fin.cashPrice) > profile.budget)
+    flags.financingOfferOverBudget++;
+  if (
+    Array.isArray(detail?.specifications) &&
+    Array.isArray(detail?.features) &&
+    !detail.specifications.length &&
+    !detail.features.length
+  )
+    flags.missingSpecsDisclosed++;
+  const assistantAnswer = synthesizeFlowAnswer(
     profile,
     selected,
     detail,
     offers,
-    comparison,
-    provenance,
   );
   if (
     selected?.price != null &&
@@ -480,10 +379,13 @@ async function simulate(profile) {
     detail &&
     !detail.features?.length &&
     !detail.specifications?.length &&
+    !['model_year_not_found', 'no_model_year_options_found'].includes(
+      detail.status,
+    ) &&
+    !assistantAnswer.includes('model-specific 2026 page is unavailable') &&
     !assistantAnswer.includes('no specifications or features')
   )
     failures.push('answer_unstated_feature_gap');
-  const fin = offers?.results?.[0];
   if (
     fin?.validityStatus === 'unknown' &&
     !assistantAnswer.includes('current availability is unconfirmed')
@@ -504,13 +406,6 @@ async function simulate(profile) {
     !assistantAnswer.includes(money(fin.monthlyPayment))
   )
     failures.push('answer_missing_finance_value');
-  if (
-    provenance?.crawled_at &&
-    !assistantAnswer.includes(
-      new Date(provenance.crawled_at).toISOString().slice(0, 10),
-    )
-  )
-    failures.push('answer_missing_freshness');
   if (failures.length && flowErrors.length < 15)
     flowErrors.push({
       simulation: profile.id,
@@ -525,12 +420,12 @@ async function simulate(profile) {
       assistantAnswer,
       toolSummary: {
         vehicleResults: rows.length,
-        selected: selected?.modelName,
+        selected: vehicleName(selected),
         offers: offers?.results?.length,
-        comparison: comparison?.map(r => ({model: r.model, price: r.price})),
-        source: provenance?.source_url,
-        crawledAt: provenance?.crawled_at,
-        promotions: promotions?.length,
+        source: getVehicleSource(detail) ?? detail?.priceSourceUrl,
+        promotions: Array.isArray(promotions)
+          ? promotions.length
+          : promotions?.results?.length,
         catalog: status,
       },
     });

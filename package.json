@@ -18,7 +18,11 @@
     "eval:mcp:leads:ragas": "evals/multistep-leads/ragas/.venv/bin/python evals/multistep-leads/ragas/score_traces.py",
     "lint": "gts lint src tests scripts vitest.config.ts",
     "format": "gts fix src tests scripts vitest.config.ts",
-    "migrate": "tsx src/cli.ts migrate"
+    "migrate": "tsx src/cli.ts migrate",
+    "db:backup": "node scripts/backup-database.mjs",
+    "eval:mcp:catalog-qa": "tsx scripts/evaluate-mcp-catalog-qa.mjs",
+    "eval:mcp:catalog-qa:ragas": "evals/multistep-leads/ragas/.venv/bin/python evals/catalog-qa/ragas/score_traces.py",
+    "eval:semantic-retrieval": "tsx scripts/evaluate-semantic-retrieval.mjs"
   },
   "dependencies": {
     "@langfuse/otel": "^5.11.1",

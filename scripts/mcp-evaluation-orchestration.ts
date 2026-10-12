@@ -22,10 +22,15 @@ export function getMissingRequiredTools(
 export function getToolUseFailures(
   expectedTools: string[],
   modelCalledTools: string[],
+  conflictingTools: string[] = [],
 ): string[] {
-  return expectedTools
+  const missing = expectedTools
     .filter(tool => !modelCalledTools.includes(tool))
     .map(tool => `model_missing_tool:${tool}`);
+  const conflicts = conflictingTools
+    .filter(tool => modelCalledTools.includes(tool))
+    .map(tool => `model_called_conflicting_tool:${tool}`);
+  return [...missing, ...conflicts];
 }
 
 export function toToolContextMessages(results: EvaluationToolResult[]) {

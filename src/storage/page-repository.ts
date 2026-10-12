@@ -1,5 +1,8 @@
 import type {Pool} from 'pg';
+import {createHash} from 'node:crypto';
 import type {PageType, StoredPage} from '../domain/contracts.js';
+import {extractPageLinks} from '../crawl/page-links.js';
+import {normalizeUrl, stripComparisonSelectorParamsFromText} from '../crawl/url-policy.js';
 
 export interface FetchedPage {
   sourceBaseUrl: string;
@@ -26,6 +29,15 @@ export class PageRepository {
   constructor(private readonly pool: Pool) {}
 
   async upsert(input: FetchedPage): Promise<PageChange> {
+    const baseUrl = new URL(input.url);
+    const rawHtml = stripComparisonSelectorParamsFromText(input.rawHtml);
+    input = {
+      ...input,
+      url: normalizeUrl(input.url, baseUrl),
+      canonicalUrl: normalizeUrl(input.canonicalUrl, baseUrl),
+      rawHtml,
+      contentHash: createHash('sha256').update(rawHtml).digest('hex'),
+    };
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -83,11 +95,34 @@ export class PageRepository {
           JSON.stringify(input.metadata),
         ],
       );
+      const pageId = result.rows[0].id;
+      await client.query('DELETE FROM ford.page_links WHERE source_page_id = $1', [
+        pageId,
+      ]);
+      for (const link of extractPageLinks(input.rawHtml, input.url)) {
+        await client.query(
+          `INSERT INTO ford.page_links
+             (source_page_id, href, target_url, anchor_text, rel, is_internal, link_type)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (source_page_id, href, anchor_text) DO UPDATE SET
+             target_url = EXCLUDED.target_url, rel = EXCLUDED.rel,
+             is_internal = EXCLUDED.is_internal, link_type = EXCLUDED.link_type`,
+          [
+            pageId,
+            link.href,
+            link.targetUrl,
+            link.anchorText,
+            link.rel ?? null,
+            link.internal,
+            link.linkType,
+          ],
+        );
+      }
       await client.query('COMMIT');
       return {
         changed,
         page: {
-          id: result.rows[0].id,
+          id: pageId,
           url: input.url,
           canonicalUrl: input.canonicalUrl,
           pageType: input.pageType,

@@ -5,39 +5,68 @@ import {
 } from '@modelcontextprotocol/server/stdio';
 import {z} from 'zod';
 import type {OfferSearchRequest, SearchRequest} from '../domain/contracts.js';
+import {
+  isSupportedModelYear,
+  MAX_SUPPORTED_MODEL_YEAR,
+  MIN_SUPPORTED_MODEL_YEAR,
+} from '../domain/model-years.js';
+
+const modelYearSchema = z.coerce
+  .number()
+  .int()
+  .min(MIN_SUPPORTED_MODEL_YEAR)
+  .max(MAX_SUPPORTED_MODEL_YEAR)
+  .describe(`Supported Ford model years: ${MIN_SUPPORTED_MODEL_YEAR}-${MAX_SUPPORTED_MODEL_YEAR}.`);
 
 export interface McpServices {
   search: {search(request: SearchRequest): Promise<unknown>};
   vehicles: {
-    getByModelYear(model: string, year: number): Promise<unknown>;
+    getByModelYear(model: string, year: number, trim?: string): Promise<unknown>;
+    getAvailableModelYears(model: string): Promise<number[]>;
     compare(ids: string[]): Promise<unknown>;
   };
   provenance: {get(documentId: string): Promise<unknown>};
+  links: {
+    getPageLinks(sourceUrl: string, offset?: number, limit?: number, includeAssets?: boolean): Promise<unknown>;
+  };
   promotions: {list(filters: Record<string, unknown>): Promise<unknown>};
   offers: {searchOffers(request: OfferSearchRequest): Promise<unknown>};
   catalog: {status(): Promise<unknown>};
+  comparisons: {
+    compareTrims(model: string, year: number, trims: string[]): Promise<unknown>;
+    compareModelYears(model: string, years: number[]): Promise<unknown>;
+    getVariantComparisons(model: string, year: number, trim?: string): Promise<unknown>;
+  };
 }
 
 const filtersSchema = z
   .object({
     model: z
       .string()
-      .describe('Ford model name to include in the query.')
+      .describe(
+        'Exact Ford nameplate or powertrain/body variant stated by the buyer, such as F-150 Híbrida, Transit Van, or Ranger Raptor. For a trim such as XL Gasolina 4x2, use get_vehicle with its trim field.',
+      )
       .optional(),
     minPrice: z.number().nonnegative().optional(),
     maxPrice: z
       .number()
       .nonnegative()
-      .describe('Set only to a budget stated by the buyer.')
+      .describe(
+        'Set only to a budget stated by the buyer. If a named model exceeds it, preserve that model as an exact request and disclose the mismatch; do not silently replace it.',
+      )
       .optional(),
-    modelYear: z.number().int().describe('Exact model year.').optional(),
+    modelYear: modelYearSchema.optional(),
     category: z
       .string()
-      .describe('Use only if the buyer states a category; never guess.')
+      .describe(
+        'Use for broad vehicle classes the buyer states, such as SUV, pickup, or van. SUV/crossover belongs here, not bodyType. Never infer.',
+      )
       .optional(),
     bodyType: z
       .string()
-      .describe('Use only if the buyer states a body type; never guess.')
+      .describe(
+        'Use only for a specific body style explicitly stated by the buyer, such as regular cab, SuperCrew, or wheelbase/body variant. Do not use SUV/crossover here.',
+      )
       .optional(),
     fuelType: z
       .string()
@@ -77,9 +106,7 @@ const offerFiltersSchema = z
       .nullable()
       .optional()
       .transform(value => value ?? undefined),
-    modelYear: z
-      .number()
-      .int()
+    modelYear: modelYearSchema
       .describe('Exact vehicle model year.')
       .nullable()
       .optional()
@@ -92,19 +119,51 @@ const offerFiltersSchema = z
     minimumMonthsWithoutInterest: optionalFilter(
       z.number().int().nonnegative(),
     ),
+    termMonths: optionalFilter(
+      z.number().int().positive().describe('Exact financing term in months.'),
+    ),
     asOf: optionalFilter(z.string()),
     activeOnly: optionalFilter(z.boolean()),
   })
   .optional();
 
 function result(value: unknown) {
-  return {content: [{type: 'text' as const, text: JSON.stringify(value)}]};
+  return {content: [{type: 'text' as const, text: JSON.stringify(cleanComparisonUrls(value))}]};
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function definedFields(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== null && item !== undefined && item !== ''),
+  );
+}
+
+function cleanComparisonUrls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cleanComparisonUrls);
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value !== 'object' || value === null) {
+    if (typeof value !== 'string') return value;
+    try {
+      const url = new URL(value);
+      if (!/^\/.+\/(?:20\d{2}|\d{2})\/Comparativo\/[^/]+\/?$/i.test(url.pathname)) return value;
+      const selectors = [...url.searchParams.keys()].filter(key =>
+        ['exterior', 'interior'].includes(key.toLowerCase()),
+      );
+      if (!selectors.length) return value;
+      for (const selector of selectors) url.searchParams.delete(selector);
+      return url.toString();
+    } catch {
+      return value;
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, cleanComparisonUrls(item)]),
+  );
 }
 
 function sameVehicleSelector(
@@ -142,9 +201,51 @@ function priceDisplay(price: unknown, currency: unknown): string | undefined {
   }).format(amount)}`;
 }
 
-function compactVehicle(value: unknown, detailLimit = 5): unknown {
+function prioritizeVehicleSpecifications(value: unknown): unknown {
+  const vehicle = record(value);
+  if (!vehicle || !Array.isArray(vehicle.specifications)) return value;
+  const priority = (specification: unknown): number => {
+    const row = record(specification);
+    const name = String(row?.name ?? '');
+    if (/motor|potencia|horsepower|\bhp\b|torque|par motor/i.test(name)) {
+      return 0;
+    }
+    if (
+      /consumo|autonom[ií]a|bater[ií]a|combustible|capacidad|arrastre|carga|pasajeros|tanque|tracci[oó]n|transmisi[oó]n|dimensi/i.test(
+        name,
+      )
+    ) {
+      return 1;
+    }
+    return 2;
+  };
+  return {
+    ...vehicle,
+    specifications: vehicle.specifications
+      .map((specification, index) => ({specification, index}))
+      .sort(
+        (left, right) =>
+          priority(left.specification) - priority(right.specification) ||
+          left.index - right.index,
+      )
+      .map(({specification}) => specification),
+  };
+}
+
+function compactVehicle(value: unknown, detailLimit = 8): unknown {
   const vehicle = record(value);
   if (!vehicle) return value;
+  const sourceUrl = vehicle.source_url ?? vehicle.sourceUrl;
+  const modelPageUrl =
+    vehicle.model_page_url ?? vehicle.modelPageUrl ??
+    (vehicle.source_page_type === 'model' || vehicle.sourcePageType === 'model'
+      ? sourceUrl
+      : vehicle.source_page_type === undefined && vehicle.sourcePageType === undefined
+        ? sourceUrl
+        : undefined);
+  const technicalSheetUrl = vehicle.technical_sheet_url ?? vehicle.technicalSheetUrl;
+  const priceSourceUrl = vehicle.price_source_url ?? vehicle.priceSourceUrl ?? sourceUrl;
+  const defaultFactSource = technicalSheetUrl ?? modelPageUrl;
 
   const specifications = Array.isArray(vehicle.specifications)
     ? vehicle.specifications
@@ -171,40 +272,120 @@ function compactVehicle(value: unknown, detailLimit = 5): unknown {
     })
     .map(spec => spec.name)
     .filter((name): name is string => typeof name === 'string');
-  const compactSpecifications = specifications
+  const availableSpecifications = specifications.filter(spec => {
+    const value = spec.value_text ?? spec.value ?? spec.value_numeric;
+    return value !== undefined && value !== null && value !== '' && value !== '—' && value !== '-';
+  });
+  const compactSpecifications = availableSpecifications
     .slice(0, detailLimit)
-    .map(spec => ({
-      name: spec.name,
-      value: spec.value_text ?? spec.value ?? spec.value_numeric,
-      unit: spec.unit,
-      sourceUrl: spec.source_url ?? spec.sourceUrl,
-    }));
-  const compactFeatures = features.slice(0, detailLimit).map(feature => ({
-    name: feature.name,
-    description: feature.description,
-    category: feature.category,
-    sourceUrl: feature.source_url ?? feature.sourceUrl,
-  }));
+    .map(spec => {
+      const source = spec.source_url ?? spec.sourceUrl;
+      return definedFields({
+        name: spec.name,
+        value: spec.value_text ?? spec.value ?? spec.value_numeric,
+        unit: spec.unit,
+        ...(source && source !== defaultFactSource
+          ? {sourceUrl: source}
+          : {}),
+      });
+    });
+  const compactFeatures = features.slice(0, detailLimit).map(feature => {
+    const description = feature.description;
+    const source = feature.source_url ?? feature.sourceUrl;
+    return definedFields({
+      name: feature.name,
+      description:
+        typeof description === 'string' && description.length > 180
+          ? `${description.slice(0, 180)}…`
+          : description,
+      ...(typeof description === 'string' && description.length > 180
+        ? {descriptionOmitted: true}
+        : {}),
+      ...(feature.category ? {category: feature.category} : {}),
+      ...(source && source !== defaultFactSource ? {sourceUrl: source} : {}),
+    });
+  });
+  const images = Array.isArray(vehicle.images)
+    ? vehicle.images.map(record).filter(
+        (image): image is Record<string, unknown> => image !== undefined,
+      )
+    : [];
+  const compactImages = images
+    .slice(0, detailLimit === Number.POSITIVE_INFINITY ? 6 : 2)
+    .map(image => image.url)
+    .filter((url): url is string => typeof url === 'string');
+  const variantRows = Array.isArray(vehicle.variants)
+    ? vehicle.variants.map(record).filter(
+        (variant): variant is Record<string, unknown> => variant !== undefined,
+      )
+    : [];
+  const variants = variantRows.map(variant => {
+    const variantSource = variant.source_url ?? variant.sourceUrl;
+    return {
+      name: variant.trim_name ?? variant.name,
+      ...(variantSource && variantSource !== modelPageUrl
+        ? {sourceUrl: variantSource}
+        : {}),
+    };
+  });
+  const variantSourceUrls = new Set(
+    variants.map(variant => variant.sourceUrl).filter(
+      (url): url is string => typeof url === 'string',
+    ),
+  );
+  const comparisonUrls = Array.isArray(vehicle.comparison_urls)
+    ? vehicle.comparison_urls
+        .map(item => {
+          if (typeof item === 'string') return {url: item};
+          const comparison = record(item);
+          const url = comparison?.url ?? comparison?.target_url;
+          if (typeof url !== 'string') return undefined;
+          const trimName = comparison?.trim_name ?? comparison?.trim;
+          return {
+            ...(typeof trimName === 'string' ? {trim: trimName} : {}),
+            url,
+          };
+        })
+        .filter((item): item is {trim?: string; url: string} =>
+          item !== undefined && !variantSourceUrls.has(item.url),
+        )
+        .filter((item, index, rows) => rows.findIndex(other => other.url === item.url) === index)
+    : [];
 
-  return {
+  return definedFields({
     model: vehicle.model ?? vehicle.modelName ?? vehicle.model_name,
     year: vehicle.year ?? vehicle.modelYear ?? vehicle.model_year,
+    ...(vehicle.trim_name ?? vehicle.trim
+      ? {trim: vehicle.trim_name ?? vehicle.trim}
+      : {}),
+    ...(vehicle.trim_status ?? vehicle.trimStatus
+      ? {trimStatus: vehicle.trim_status ?? vehicle.trimStatus}
+      : {}),
+    ...(vehicle.trim_source_url ?? vehicle.trimSourceUrl
+      ? {trimSourceUrl: vehicle.trim_source_url ?? vehicle.trimSourceUrl}
+      : {}),
     price: vehicle.price,
     priceDisplay: priceDisplay(vehicle.price, vehicle.currency ?? 'MXN'),
     currency: vehicle.currency,
     category: vehicle.category,
-    source_url: vehicle.source_url,
-    sourceUrl: vehicle.source_url,
-    crawled_at: vehicle.crawled_at,
+    ...(priceSourceUrl && priceSourceUrl !== modelPageUrl ? {priceSourceUrl} : {}),
+    modelPageUnavailable: !modelPageUrl,
     specificationCount: specifications.length,
-    specificationsOmitted: Math.max(0, specifications.length - detailLimit),
+    specificationsOmitted: Math.max(0, availableSpecifications.length - detailLimit),
     missingSpecificationNames: missingSpecificationNames.slice(0, 3),
     missingSpecificationCount: missingSpecificationNames.length,
     specifications: compactSpecifications,
-    featureCount: features.length,
     featuresOmitted: Math.max(0, features.length - detailLimit),
+    featureCount: features.length,
     features: compactFeatures,
-  };
+    ...(compactImages.length ? {imageLinks: compactImages} : {}),
+    modelPageUrl,
+    ...(technicalSheetUrl && technicalSheetUrl !== modelPageUrl
+      ? {technicalSheetUrl}
+      : {}),
+    variants,
+    comparisonUrls,
+  });
 }
 
 function compactVehicleResults(value: unknown): unknown {
@@ -213,18 +394,400 @@ function compactVehicleResults(value: unknown): unknown {
     : compactVehicle(value);
 }
 
-function compactComparisonResults(value: unknown): unknown {
+function compactVehicleSearch(value: unknown): unknown {
+  const response = record(value);
+  if (!response) return value;
+  const results = Array.isArray(response.results)
+    ? response.results.map(record).filter(
+        (vehicle): vehicle is Record<string, unknown> => vehicle !== undefined,
+      )
+    : [];
+  return {
+    semanticSearch: response.semanticSearch,
+    resultCount: results.length,
+    results: results.map(vehicle => {
+      const modelPageUrl = vehicle.modelPageUrl ?? vehicle.model_page_url ?? vehicle.sourceUrl;
+      const priceSourceUrl = vehicle.priceSourceUrl ?? vehicle.price_source_url;
+      const evidence = Array.isArray(vehicle.evidence)
+        ? vehicle.evidence.map(record).filter(
+            (item): item is Record<string, unknown> => item !== undefined,
+          ).slice(0, 2)
+        : [];
+      return definedFields({
+        model: vehicle.modelName ?? vehicle.model_name,
+        year: vehicle.modelYear ?? vehicle.model_year,
+        price: vehicle.price,
+        currency: 'MXN',
+        category: vehicle.category,
+        modelPageUrl,
+        ...(priceSourceUrl && priceSourceUrl !== modelPageUrl ? {priceSourceUrl} : {}),
+        evidence: evidence.map(item => {
+          const content = typeof item.content === 'string' ? item.content : '';
+          return {
+            title: item.title,
+            excerpt: content.length > 320 ? `${content.slice(0, 320)}…` : content,
+            ...(item.sourceUrl && item.sourceUrl !== modelPageUrl
+              ? {sourceUrl: item.sourceUrl}
+              : {}),
+          };
+        }),
+      });
+    }),
+  };
+}
+
+function compactComparisonResults(
+  value: unknown,
+  detailLimit = 5,
+  includeFeatures = false,
+): unknown {
   if (!Array.isArray(value)) return value;
   return value.map(vehicle => {
-    const compact = record(compactVehicle(vehicle, 2));
+    const prioritized = prioritizeVehicleSpecifications(vehicle);
+    const compact = record(compactVehicle(prioritized, detailLimit));
     if (!compact) return vehicle;
     const buyerComparison = {...compact};
-    delete buyerComparison.featureCount;
-    delete buyerComparison.featuresOmitted;
-    delete buyerComparison.features;
-    delete buyerComparison.specificationsOmitted;
+    if (!includeFeatures) {
+      delete buyerComparison.features;
+      delete buyerComparison.featureCount;
+      delete buyerComparison.featuresOmitted;
+    }
     delete buyerComparison.missingSpecificationNames;
     return buyerComparison;
+  });
+}
+
+function compactPromotionResults(
+  value: unknown,
+  limit: number,
+  offset: number,
+  detail: 'summary' | 'full',
+): unknown {
+  if (!Array.isArray(value)) return value;
+  const rows = value.map(record).filter(
+    (row): row is Record<string, unknown> => row !== undefined,
+  );
+  const results = rows.slice(offset, offset + limit).map(row => {
+    const conditions = row.conditions ?? row.termsAndConditions;
+    return definedFields({
+      model: row.modelName ?? row.model_name,
+      year: row.modelYear ?? row.model_year,
+      title: row.title,
+      discountAmount: row.discount_amount ?? row.discountAmount,
+      discountPercent: row.discount_percent ?? row.discountPercent,
+      cashPrice: row.cash_price ?? row.cashPrice,
+      downPaymentAmount: row.down_payment_amount ?? row.downPaymentAmount,
+      downPaymentPercent: row.down_payment_percent ?? row.downPaymentPercent,
+      monthlyPayment: row.monthly_payment ?? row.monthlyPayment,
+      termMonths: row.term_months ?? row.termMonths,
+      monthsWithoutInterest: row.months_without_interest ?? row.monthsWithoutInterest,
+      annualInterestRate: row.annual_interest_rate ?? row.annualInterestRate,
+      catPercent: row.cat_percent ?? row.catPercent,
+      requiresCreditApproval: row.requires_credit_approval ?? row.requiresCreditApproval,
+      currency: row.currency,
+      ...(detail === 'full' && row.description ? {description: row.description} : {}),
+      benefits: row.benefits,
+      validFrom: row.valid_from ?? row.validFrom,
+      validUntil: row.valid_until ?? row.validUntil,
+      validityStatus: row.validityStatus,
+      ...(detail === 'full' || (typeof conditions === 'string' && conditions.length <= 280)
+        ? {conditions}
+        : typeof conditions === 'string' && conditions.length > 280
+          ? {conditionsOmitted: true}
+          : {}),
+      sourceUrl: row.sourceUrl ?? row.source_url,
+      modelPageUrl: row.modelUrl ?? row.model_url,
+    });
+  });
+  return definedFields({
+    totalCount: rows.length,
+    offset,
+    limit,
+    hasMore: offset + results.length < rows.length,
+    results,
+  });
+}
+
+function compactYearComparison(
+  value: unknown,
+  detail: 'summary' | 'full',
+  trimOffset: number,
+  trimLimit: number,
+): unknown {
+  const response = record(value);
+  if (!response) return value;
+  const foundYears = Array.isArray(response.foundYears)
+    ? response.foundYears.map(record).filter(
+        (year): year is Record<string, unknown> => year !== undefined,
+      )
+    : [];
+  const yearPairs = Array.isArray(response.yearPairs)
+    ? response.yearPairs.map(record).filter(
+        (pair): pair is Record<string, unknown> => pair !== undefined,
+      )
+    : [];
+  const years = foundYears.map(year => {
+    const modelPageUrl = year.model_page_url;
+    const priceSourceUrl = year.price_source_url;
+    const technicalSheetUrl = year.technical_sheet_url;
+    const variants = Array.isArray(year.variants)
+      ? year.variants.map(record).filter(
+          (variant): variant is Record<string, unknown> => variant !== undefined,
+        )
+      : [];
+    return definedFields({
+      year: year.year,
+      price: year.price,
+      currency: year.currency,
+      modelPageUrl,
+      ...(technicalSheetUrl ? {technicalSheetUrl} : {}),
+      modelPageUnavailable: !modelPageUrl,
+      trimLinks: variants.map(variant => definedFields({
+        trim: variant.trim,
+        ...(variant.sourceUrl && variant.sourceUrl !== modelPageUrl
+          ? {sourceUrl: variant.sourceUrl}
+          : {}),
+        comparisonUrl: variant.comparisonUrl,
+      })),
+      ...(priceSourceUrl && priceSourceUrl !== modelPageUrl ? {priceSourceUrl} : {}),
+      promotions: Array.isArray(year.active_promotions)
+        ? year.active_promotions.map(record).filter(
+            (promotion): promotion is Record<string, unknown> => promotion !== undefined,
+          ).map(promotion => definedFields({
+            title: promotion.title,
+            discountAmount: promotion.discountAmount,
+            cashPrice: promotion.cashPrice,
+            validUntil: promotion.validUntil,
+            sourceUrl: promotion.sourceUrl,
+          }))
+        : [],
+    });
+  });
+  const factPriority = (fact: Record<string, unknown>) => {
+    const name = String(fact.name ?? '');
+    if (/motor|potencia|horsepower|torque|transmisi[oó]n|combustible|h[ií]brid/i.test(name)) return 0;
+    if (/seguridad|airbag|freno|asistencia|c[aá]mara|adapta|control crucero/i.test(name)) return 1;
+    if (/pasajero|carga|cajuela|dimensi|arrastre|tracci[oó]n|bater[ií]a/i.test(name)) return 2;
+    return 3;
+  };
+  const changes = yearPairs.map(pair => {
+    const facts = Array.isArray(pair.changedFacts)
+      ? pair.changedFacts.map(record).filter(
+          (fact): fact is Record<string, unknown> => fact !== undefined,
+        )
+      : [];
+    const sortedFacts = [...facts].sort((left, right) => factPriority(left) - factPriority(right));
+    const selectedFacts = detail === 'full' ? sortedFacts : sortedFacts.slice(0, 5);
+    const trimChanges = Array.isArray(pair.trimChanges)
+      ? pair.trimChanges.map(record).filter(
+          (trim): trim is Record<string, unknown> => trim !== undefined,
+        )
+      : [];
+    const selectedTrims = trimChanges.slice(trimOffset, trimOffset + trimLimit);
+    const hasTrimChanges = trimChanges.some(trim => {
+      const trimFacts = Array.isArray(trim.changedFacts) ? trim.changedFacts : [];
+      const priceDifference = trim.priceDifferenceMxn;
+      return trimFacts.length > 0 ||
+        (priceDifference !== null && priceDifference !== undefined && Number(priceDifference) !== 0);
+    });
+    return definedFields({
+      fromYear: pair.fromYear,
+      toYear: pair.toYear,
+      status: selectedFacts.length || hasTrimChanges ||
+        (pair.priceDifferenceMxn !== null && Number(pair.priceDifferenceMxn) !== 0)
+        ? 'source_backed_changes_found'
+        : 'no_source_backed_changes_found',
+      priceDifferenceMxn: pair.priceDifferenceMxn,
+      priceSourceUrls: pair.priceSourceUrls,
+      changedFacts: selectedFacts,
+      unmatchedTrims: pair.unmatchedTrims,
+      note: pair.note,
+      trimPagination: {
+        offset: trimOffset,
+        limit: trimLimit,
+        total: trimChanges.length,
+        hasMore: trimOffset + selectedTrims.length < trimChanges.length,
+      },
+      trimChanges: selectedTrims.map(trim => {
+        const trimFacts = Array.isArray(trim.changedFacts)
+          ? trim.changedFacts.map(record).filter(
+              (fact): fact is Record<string, unknown> => fact !== undefined,
+            )
+          : [];
+        const selectedTrimFacts = (detail === 'full' ? trimFacts : trimFacts.slice(0, 3))
+          .map(fact => {
+            const compactFact = {...fact};
+            const sourceUrls = record(trim.sourceUrls);
+            const older = record(fact.older);
+            const newer = record(fact.newer);
+            if (older?.sourceUrl && older.sourceUrl === sourceUrls?.from) {
+              compactFact.older = {...older};
+              delete (compactFact.older as Record<string, unknown>).sourceUrl;
+            }
+            if (newer?.sourceUrl && newer.sourceUrl === sourceUrls?.to) {
+              compactFact.newer = {...newer};
+              delete (compactFact.newer as Record<string, unknown>).sourceUrl;
+            }
+            return compactFact;
+          });
+        return definedFields({
+          trim: trim.trim,
+          priceDifferenceMxn: trim.priceDifferenceMxn,
+          sourceUrls: trim.sourceUrls,
+          changedFacts: selectedTrimFacts,
+          ...(trimFacts.length > selectedTrimFacts.length
+            ? {factsOmitted: trimFacts.length - selectedTrimFacts.length}
+            : {}),
+        });
+      }),
+      ...(facts.length > selectedFacts.length
+        ? {factsOmitted: facts.length - selectedFacts.length}
+        : {}),
+    });
+  });
+  return definedFields({
+    model: response.model,
+    years,
+    changes,
+    missingYears: response.missingYears,
+  });
+}
+
+function compactTrimComparison(value: unknown, detail: 'summary' | 'full'): unknown {
+  const response = record(value);
+  if (!response) return value;
+  const foundTrims = Array.isArray(response.foundTrims)
+    ? response.foundTrims.map(record).filter(
+        (trim): trim is Record<string, unknown> => trim !== undefined,
+      )
+    : [];
+  const trimPairs = Array.isArray(response.trimPairs)
+    ? response.trimPairs.map(record).filter(
+        (pair): pair is Record<string, unknown> => pair !== undefined,
+      )
+    : [];
+  return definedFields({
+    model: response.model,
+    year: response.year,
+    modelPageUrl: response.modelPageUrl ?? response.model_page_url,
+    technicalSheetUrl: response.technicalSheetUrl ?? response.technical_sheet_url,
+    trims: foundTrims.map(trim => {
+      const comparisonUrl = trim.comparison_url ?? trim.comparisonUrl;
+      const priceSourceUrl = trim.price_source_url ?? trim.priceSourceUrl;
+      return definedFields({
+        trim: trim.trim,
+        price: trim.price,
+        currency: trim.currency,
+        ...(priceSourceUrl && priceSourceUrl !== comparisonUrl ? {priceSourceUrl} : {}),
+        comparisonUrl,
+      });
+    }),
+    comparisons: trimPairs.map(pair => {
+      const facts = Array.isArray(pair.sharedFactDifferences)
+        ? pair.sharedFactDifferences.map(record).filter(
+            (fact): fact is Record<string, unknown> => fact !== undefined,
+          )
+        : [];
+      const factPriority = (fact: Record<string, unknown>) => {
+        const name = String(fact.name ?? '');
+        if (/motor|potencia|horsepower|torque|transmisi[oó]n|combustible|h[ií]brid/i.test(name)) return 0;
+        if (/seguridad|airbag|freno|asistencia|c[aá]mara|adapta|control crucero/i.test(name)) return 1;
+        if (/pasajero|carga|cajuela|dimensi|arrastre|tracci[oó]n|bater[ií]a/i.test(name)) return 2;
+        return 3;
+      };
+      const sortedFacts = [...facts].sort((left, right) => factPriority(left) - factPriority(right));
+      const selectedFacts = detail === 'full' ? sortedFacts : sortedFacts.slice(0, 5);
+      const hasPriceChange =
+        pair.priceDifferenceMxn !== null &&
+        pair.priceDifferenceMxn !== undefined &&
+        Number(pair.priceDifferenceMxn) !== 0;
+      return definedFields({
+        leftTrim: pair.leftTrim,
+        rightTrim: pair.rightTrim,
+        status: selectedFacts.length || hasPriceChange
+          ? 'source_backed_differences_found'
+          : 'no_source_backed_differences',
+        priceDifferenceMxn: pair.priceDifferenceMxn,
+        differences: selectedFacts,
+        ...(facts.length > selectedFacts.length
+          ? {differencesOmitted: facts.length - selectedFacts.length}
+          : {}),
+      });
+    }),
+    missingTrims: response.missingTrims,
+    note: response.note,
+  });
+}
+
+function compactCompetitorComparison(
+  value: unknown,
+  detail: 'summary' | 'full',
+  offset: number,
+  limit: number,
+): unknown {
+  const response = record(value);
+  if (!response) return value;
+  const comparisons = Array.isArray(response.comparisons)
+    ? response.comparisons.map(record).filter(
+        (comparison): comparison is Record<string, unknown> => comparison !== undefined,
+      )
+    : [];
+  return definedFields({
+    model: response.model,
+    year: response.year,
+    trim: response.trim,
+    modelPageUrl: response.modelPageUrl ?? response.model_page_url,
+    technicalSheetUrl: response.technicalSheetUrl ?? response.technical_sheet_url,
+    count: response.count ?? comparisons.length,
+    offset,
+    limit,
+    hasMore: offset + Math.max(0, Math.min(limit, comparisons.length - offset)) < comparisons.length,
+    comparisons: comparisons.slice(offset, offset + limit).map(comparison => {
+      const pairedFacts = Array.isArray(comparison.paired_facts)
+        ? comparison.paired_facts
+        : [];
+      const selectedFacts = detail === 'full' ? pairedFacts : pairedFacts.slice(0, 5);
+      return definedFields({
+        fordTrim: comparison.ford_trim,
+        competitorMake: comparison.competitor_make,
+        competitorModel: comparison.competitor_model,
+        competitorYear: comparison.competitor_year,
+        competitorVariant: comparison.competitor_variant,
+        comparisonUrl: comparison.comparison_url,
+        fordImageUrl: comparison.ford_image_url,
+        competitorImageUrl: comparison.competitor_image_url,
+        pairedFacts: selectedFacts,
+        ...(pairedFacts.length > selectedFacts.length
+          ? {pairedFactsOmitted: pairedFacts.length - selectedFacts.length}
+          : {}),
+        excludedFactCount: Array.isArray(comparison.excluded_source_rows)
+          ? comparison.excluded_source_rows.length
+          : 0,
+      });
+    }),
+    note: response.note,
+  });
+}
+
+function compactPageLinks(value: unknown): unknown {
+  const response = record(value);
+  if (!response) return value;
+  const links = Array.isArray(response.links) ? response.links : [];
+  return definedFields({
+    sourceUrl: response.source_url,
+    title: response.title,
+    totalLinks: response.totalLinks,
+    offset: response.offset,
+    limit: response.limit,
+    links: links.map(link => {
+      const row = record(link) ?? {};
+      return definedFields({
+        url: row.target_url ?? row.href,
+        text: row.anchor_text,
+        type: row.link_type,
+        internal: row.is_internal,
+      });
+    }),
   });
 }
 
@@ -333,6 +896,10 @@ function compactOfferSearch(
       monthsWithoutInterest: offer.monthsWithoutInterest,
       annualInterestRate: offer.annualInterestRate,
       catPercent: offer.catPercent,
+      taxRatePercent: offer.taxRatePercent,
+      openingCommissionRatePercent: offer.openingCommissionRatePercent,
+      maximumDownPaymentPercent: offer.maximumDownPaymentPercent,
+      lifeInsurancePrice: offer.lifeInsurancePrice,
       currency,
       validityStatus: offer.validityStatus,
       validFrom: offer.validFrom,
@@ -341,6 +908,7 @@ function compactOfferSearch(
       conditions: offer.conditions,
       dataQualityWarnings: warnings,
       sourceUrl: offer.sourceUrl ?? evidence?.sourceUrl,
+      modelPageUrl: offer.modelUrl,
     };
   });
 
@@ -364,7 +932,7 @@ export function registerMcpTools(
     {
       title: 'Search Ford vehicles',
       description:
-        'Hybrid-search Ford vehicles using deterministic filters and semantic relevance. For vehicle options alone, call this tool. When the buyer also asks about financing, use search_vehicle_and_offers for both. For specifications use get_vehicle. Use only buyer-stated filters; never guess category, body type, or fuel type. The server builds a query from filters if omitted; result limit defaults to 3.',
+        'Use for Ford vehicle recommendations and discovery, including lifestyle queries. Apply only explicit buyer filters; map SUV/crossover to category, not bodyType. Preserve named model variants exactly. If budget excludes a named model, state the mismatch and label any other matches as alternatives. Hybrid search filters before semantic ranking and returns up to 5 compact results with evidence and direct model links. For exact specifications use get_vehicle; comparisons use the matching compare tool; vehicle + finance uses search_vehicle_and_offers. Copy URLs exactly; never construct them.',
       inputSchema: z.object({
         query: z
           .string()
@@ -393,13 +961,13 @@ export function registerMcpTools(
           .filter(value => value !== undefined && value !== '')
           .join(' ') ||
         'Ford vehicles';
-      return result(
+      return result(compactVehicleSearch(
         await services.search.search({
           query,
-          filters,
-          limit: input.limit ?? 3,
+          filters: {...filters, ...(model ? {model} : {})},
+          limit: input.limit ?? 5,
         }),
-      );
+      ));
     },
   );
 
@@ -408,13 +976,14 @@ export function registerMcpTools(
     {
       title: 'Search Ford vehicles and financing together',
       description:
-        'Use this single tool only when the buyer asks for both vehicle options or recommendations and financing. A budget by itself does not mean the buyer asked for vehicle recommendations; a financing-only request for a known model belongs to search_offers, even when a budget is stated. It searches in parallel and returns the top matching vehicle and top financing offer to keep the lead response focused. Copy answerSummary as the canonical concise response; it combines vehicle and offer facts with required disclosures. The separate search tools return more results when requested. Only apply buyer-stated model, year, and budget. Preserve variant words such as HÍBRIDA, RAPTOR, SPORT, CHASIS, and VAN in the model filter. The vehicle and offer results are separate records and can have different prices. Never claim a requested variant unless vehicles.results has that exact model. Quote vehicle price from vehicles.results priceDisplay and offer cash price from offers.results cashPriceDisplay; do not substitute offers.results cashPriceDisplay for vehicles.results priceDisplay.',
+        'Use this tool exactly once when the buyer asks for both vehicle recommendations/options and financing in one request. Do not call search_vehicles or search_offers separately for that request. It first selects a vehicle, then searches financing for that exact returned model/year, so the two records stay aligned. A budget alone does not request vehicle recommendations; financing for a known model belongs to search_offers. Copy answerSummary as the concise combined response. never substitute one price for the other. Preserve the exact requested model variant.',
       inputSchema: z.object({
         query: z.string().min(1).optional(),
         model: z.string().min(1).optional(),
-        year: z.number().int().optional(),
-        modelYear: z.number().int().optional(),
+        year: modelYearSchema.optional(),
+        modelYear: modelYearSchema.optional(),
         budget: z.number().nonnegative().optional(),
+        termMonths: z.number().int().positive().optional(),
       }),
     },
     async input => {
@@ -422,31 +991,16 @@ export function registerMcpTools(
       const year = input.year ?? input.modelYear;
       const subject = [model, year].filter(Boolean).join(' ');
       const query = input.query?.trim() || subject || 'Ford vehicles';
-      const offersQuery = `${query} financing`;
-      const [vehicleResponse, offerResponse] = await Promise.all([
-        services.search.search({
+      const vehicleResponse = await services.search.search({
           query,
           filters: {
+            ...(model ? {model} : {}),
             ...(year === undefined ? {} : {modelYear: year}),
             ...(input.budget === undefined ? {} : {maxPrice: input.budget}),
           },
           limit: 1,
-        }),
-        services.offers.searchOffers({
-          query: offersQuery,
-          filters: {
-            ...(model ? {model} : {}),
-            ...(year === undefined ? {} : {modelYear: year}),
-            ...(input.budget === undefined ? {} : {maxCashPrice: input.budget}),
-            offerType: 'financing',
-          },
-          limit: 1,
-        }),
-      ]);
+        });
       const vehicleResults = record(vehicleResponse)?.results;
-      const compactOffers = record(
-        compactOfferSearch(offerResponse, 1, {model, modelYear: year}),
-      );
       const selectedVehicleResults = Array.isArray(vehicleResults)
         ? vehicleResults
             .filter(value => sameVehicleSelector(value, model, year))
@@ -456,6 +1010,23 @@ export function registerMcpTools(
       const firstVehicle = Array.isArray(compactVehicles)
         ? record(compactVehicles[0])
         : undefined;
+      const matchedModel = model ?? (typeof firstVehicle?.model === 'string' ? firstVehicle.model : undefined);
+      const matchedYear = year ?? (typeof firstVehicle?.year === 'number' ? firstVehicle.year : undefined);
+      const offersQuery = `${matchedModel ?? query} ${matchedYear ?? ''} financing`.trim();
+      const offerResponse = await services.offers.searchOffers({
+        query: offersQuery,
+        filters: {
+          ...(matchedModel ? {model: matchedModel} : {}),
+          ...(matchedYear === undefined ? {} : {modelYear: matchedYear}),
+          ...(input.budget === undefined ? {} : {maxCashPrice: input.budget}),
+          ...(input.termMonths === undefined ? {} : {termMonths: input.termMonths}),
+          offerType: 'financing',
+        },
+        limit: 1,
+      });
+      const compactOffers = record(compactOfferSearch(
+        offerResponse, 1, {model: matchedModel, modelYear: matchedYear},
+      ));
       const vehicleSummary = firstVehicle
         ? `${firstVehicle.model ?? ''} ${firstVehicle.year ?? ''}: ${firstVehicle.priceDisplay ?? 'precio no disponible'}`.trim()
         : undefined;
@@ -470,8 +1041,16 @@ export function registerMcpTools(
               cashPriceDisplay: offer.cashPriceDisplay,
               monthlyPayment: offer.monthlyPayment,
               monthlyPaymentDisplay: offer.monthlyPaymentDisplay,
+              modelPageUrl: offer.modelPageUrl,
               buyerSummary: offer.buyerSummary,
               termMonths: offer.termMonths,
+              annualInterestRate: offer.annualInterestRate,
+              catPercent: offer.catPercent,
+              downPaymentPercent: offer.downPaymentPercent,
+              openingCommissionRatePercent: offer.openingCommissionRatePercent,
+              maximumDownPaymentPercent: offer.maximumDownPaymentPercent,
+              taxRatePercent: offer.taxRatePercent,
+              lifeInsurancePrice: offer.lifeInsurancePrice,
               termConflict: offer.termConflict,
               termConflictDisclosure: offer.termConflictDisclosure,
               validityStatus: offer.validityStatus,
@@ -526,24 +1105,89 @@ export function registerMcpTools(
     {
       title: 'Get Ford vehicle',
       description:
-        'Use for specifications on a named model and year. Pass the model year as year or modelYear. Returns up to 5 specifications and features, counts for omitted details, explicit missingSpecificationNames, and a source URL. Only report missing specifications listed in missingSpecificationNames; specifications omitted from this short response may still exist. Cite source_url when asked for the source; prefer this over search_vehicles for exact model details.',
+        'Use for exact specifications, trims, and direct page links for a named Ford model. Pass `trim` when the buyer names one; this returns only source-backed facts for that exact trim, never grouped model-level values. Without a year, returns available 2025-2027 model years; if the requested year has no catalog row, returns known available years and their exact links. detail="full" returns every available specification and feature with its source. Compact summary returns up to 5 specs and 5 features; check omitted counts before saying a fact is absent. modelPageUnavailable=true means no year-specific detail link is available; do not cite the catalog as that page. Preserve the exact nameplate, powertrain variant, year, and trim.',
       inputSchema: z.object({
         model: z.string().min(1),
-        year: z.number().int().optional(),
-        modelYear: z.number().int().optional(),
+        year: modelYearSchema
+          .describe(
+            'Optional exact year; numeric strings are normalized. Omit to return all years stored for this model.',
+          )
+          .optional(),
+        modelYear: modelYearSchema
+          .describe(
+            'Alias for year; numeric strings are normalized. Omit both year fields to return all stored model years.',
+          )
+          .optional(),
+        trim: z.string().trim().min(1)
+          .describe('Optional exact trim/version, such as XL Gasolina 4x2. Never substitute a nearby trim.' )
+          .optional(),
+        detail: z.enum(['summary', 'full']).default('summary'),
       }),
     },
     async input => {
-      const year = input.year ?? input.modelYear;
-      if (year === undefined) {
-        throw new Error('Provide year or modelYear for the requested vehicle');
+      const explicitYear = input.year ?? input.modelYear;
+      if (explicitYear === undefined) {
+        const availableModelYears =
+          await services.vehicles.getAvailableModelYears(input.model);
+        const options = await Promise.all(
+          availableModelYears.filter(isSupportedModelYear).map(async year =>
+            compactVehicle(
+              prioritizeVehicleSpecifications(
+                await services.vehicles.getByModelYear(input.model, year, input.trim),
+              ),
+              input.detail === 'full' ? Number.POSITIVE_INFINITY : 5,
+            ),
+          ),
+        );
+        const foundOptions = options.filter(option => option !== null);
+        return result({
+          model: input.model,
+          status:
+            foundOptions.length > 0
+              ? 'available_model_year_options'
+              : 'no_model_year_options_found',
+          options: foundOptions,
+        });
       }
-      return result(
-        compactVehicle(
-          await services.vehicles.getByModelYear(input.model, year),
-          3,
+
+      const vehicle = await services.vehicles.getByModelYear(
+        input.model,
+        explicitYear,
+        input.trim,
+      );
+      if (vehicle !== null && vehicle !== undefined)
+        return result(
+          compactVehicle(
+            prioritizeVehicleSpecifications(vehicle),
+            input.detail === 'full' ? Number.POSITIVE_INFINITY : 5,
+          ),
+        );
+
+      const availableModelYears =
+        await services.vehicles.getAvailableModelYears(input.model);
+      const options = await Promise.all(
+        availableModelYears.filter(isSupportedModelYear).map(async year =>
+          compactVehicle(
+            prioritizeVehicleSpecifications(
+              await services.vehicles.getByModelYear(input.model, year, input.trim),
+            ),
+            input.detail === 'full' ? Number.POSITIVE_INFINITY : 5,
+          ),
         ),
       );
+      const foundOptions = options.filter(option => option !== null);
+      return result({
+        model: input.model,
+        requestedYear: explicitYear,
+        status:
+          foundOptions.length > 0
+            ? 'model_year_not_found'
+            : 'no_model_year_options_found',
+        availableModelYears: foundOptions
+          .map(option => record(option)?.year)
+          .filter((year): year is number => typeof year === 'number'),
+        options: foundOptions,
+      });
     },
   );
 
@@ -552,37 +1196,29 @@ export function registerMcpTools(
     {
       title: 'Compare Ford vehicles',
       description:
-        'Compare two to five Ford vehicles by price, specifications, and features when available. Returns up to three specifications and features per vehicle. Copy priceDisplay exactly when quoting prices. For named models, provide `models` with exact model names and years; each item uses `year`, not `modelYear`. Example: models: [{model: "TERRITORY", year: 2026}, {model: "RANGER", year: 2026}]. Use `ids` only when at least two ids came from another tool. Provide either `models` or `ids`, never a singular top-level model selector.',
+        'Compare different Ford nameplates. Each item uses `year`, not `modelYear`. Summary returns up to 5 specs per vehicle; use detail="full" for all specs and features. Exact model/year links stay attached. For trims use compare_trims; across years use compare_model_years; another brand use get_variant_comparisons.',
       inputSchema: z
         .object({
-          ids: z.array(z.string().min(1)).min(2).max(5).optional(),
           models: z
             .array(
               z.object({
-                model: z.string().min(1),
-                year: z
-                  .number()
-                  .int()
+                model: z
+                  .string()
+                  .min(1)
+                  .describe('Exact Ford nameplate and variant, not a trim name.'),
+                year: modelYearSchema
                   .describe(
                     'Required model year for this item; the property is named year, not modelYear.',
                   ),
               }),
             )
             .min(2)
-            .max(5)
-            .optional(),
+            .max(5),
+          detail: z.enum(['summary', 'full']).default('summary'),
         })
-        .strict()
-        .refine(input => Boolean(input.ids || input.models), {
-          message: 'Provide either ids or models to compare vehicles',
-        }),
+        .strict(),
     },
     async input => {
-      if (input.ids && input.models) {
-        throw new Error('Provide either ids or models, not both');
-      }
-
-      let ids: string[];
       const resolveModel = async (model: string, year: number) => {
         const vehicle = await services.vehicles.getByModelYear(model, year);
         if (
@@ -595,37 +1231,81 @@ export function registerMcpTools(
         }
         return vehicle.model_year_id;
       };
-      if (input.models) {
-        ids = await Promise.all(
-          input.models.map(({model, year}) => resolveModel(model, year)),
-        );
-      } else if (input.ids) {
-        ids = await Promise.all(
-          input.ids.map(async id => {
-            if (
-              /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-                id,
-              )
-            ) {
-              return id;
-            }
-            const selector = /^(.+?)\s+(\d{4})$/.exec(id.trim());
-            if (!selector) {
-              throw new Error(
-                `Invalid vehicle id or model/year selector: ${id}`,
-              );
-            }
-            return resolveModel(selector[1], Number(selector[2]));
-          }),
-        );
-      } else {
-        throw new Error('Provide ids or models to compare vehicles');
-      }
-
+      const ids = await Promise.all(
+        input.models.map(({model, year}) => resolveModel(model, year)),
+      );
       return result(
-        compactComparisonResults(await services.vehicles.compare(ids)),
+        compactComparisonResults(
+          await services.vehicles.compare(ids),
+          input.detail === 'full' ? Number.POSITIVE_INFINITY : 5,
+          input.detail === 'full',
+        ),
       );
     },
+  );
+
+  tools.compare_trims = server.registerTool(
+    'compare_trims',
+    {
+      title: 'Compare Ford trims',
+      description:
+        'Compare two to five exact trims of the same Ford model and model year. Compact summary returns up to 5 source-backed differences per pair; use detail="full" for all differences. Empty differences mean the database has no paired source facts, not that trims are identical. Trim prices and direct Ford Comparativo URLs are included. Copy exact trim names. For different Ford models use compare_vehicles; across years use compare_model_years; another brand use get_variant_comparisons.',
+      inputSchema: z.object({
+        model: z.string().min(1).describe('Exact Ford nameplate, without the trim name.'),
+        year: modelYearSchema,
+        trims: z.array(z.string().min(1)).min(2).max(5),
+        detail: z.enum(['summary', 'full']).default('summary'),
+      }),
+    },
+    async input => result(compactTrimComparison(
+      await services.comparisons.compareTrims(input.model, input.year, input.trims),
+      input.detail,
+    )),
+  );
+
+  tools.compare_model_years = server.registerTool(
+    'compare_model_years',
+    {
+      title: 'Compare model years of a Ford nameplate',
+      description:
+        'Compare the same nameplate across model years (two to five years). Summary returns prices, promotions, model/spec links, all published trim links, unmatched trims, up to 5 model-level facts, and 2 trim deltas per year pair. Use trimOffset/trimLimit to page through trim deltas; each result says total and hasMore. Summary gives up to 3 facts per selected trim; detail="full" gives every fact for the selected page. Missing facts do not prove a feature was removed. Use compare_trims within one year or compare_vehicles across nameplates.',
+      inputSchema: z.object({
+        model: z.string().min(1),
+        years: z.array(modelYearSchema).min(2).max(5),
+        detail: z.enum(['summary', 'full']).default('summary'),
+        trimOffset: z.number().int().nonnegative().default(0),
+        trimLimit: z.number().int().min(1).max(10).default(2),
+      }),
+    },
+    async input => result(compactYearComparison(
+      await services.comparisons.compareModelYears(input.model, input.years),
+      input.detail,
+      input.trimOffset ?? 0,
+      input.trimLimit ?? 2,
+    )),
+  );
+
+  tools.get_variant_comparisons = server.registerTool(
+    'get_variant_comparisons',
+    {
+      title: 'Get trim comparison with another brand',
+      description:
+        'Compare a Ford trim against another brand using Ford Uruapan Comparativo pages. IMPORTANT: model must be the base name only (for example "EXPEDITION") and trim must be separate (for example "King Ranch Max"); never put the trim inside model. Returns 3 comparisons per page and up to 5 paired facts each in compact summary; use detail="full" for every paired fact. If count is zero, say the official comparison is unavailable and use the returned model/spec links; do not invent competitor differences. Use offset/limit to page. Do not treat excluded source rows as advantages. For Ford-only comparisons use compare_vehicles, compare_trims, or compare_model_years.',
+      inputSchema: z.object({
+        model: z.string().min(1),
+        year: modelYearSchema,
+        trim: z.string().min(1).optional(),
+        detail: z.enum(['summary', 'full']).default('summary'),
+        offset: z.number().int().nonnegative().default(0),
+        limit: z.number().int().min(1).max(20).default(3),
+      }),
+    },
+    async input => result(compactCompetitorComparison(
+      await services.comparisons.getVariantComparisons(input.model, input.year, input.trim),
+      input.detail,
+      input.offset,
+      input.limit,
+    )),
   );
 
   tools.get_vehicle_provenance = server.registerTool(
@@ -633,10 +1313,33 @@ export function registerMcpTools(
     {
       title: 'Get vehicle provenance',
       description:
-        'Return source URL and crawl information for a retrieved document.',
+        'This is diagnostic only: return source URL and crawl metadata for a document ID when source details are missing from a prior result. For normal citations, use the source URLs already returned by the retrieval tool.',
       inputSchema: z.object({documentId: z.string().min(1)}),
     },
     async input => result(await services.provenance.get(input.documentId)),
+  );
+
+  tools.get_page_links = server.registerTool(
+    'get_page_links',
+    {
+      title: 'List links found on a Ford page',
+      description:
+        'Return stored page routes from a known Ford page when a requested link is missing from prior results. Includes linked Comparativo records. Returns 20 useful links by default, excluding image and static asset URLs; set includeAssets=true to include them. Use offset/limit to page. Pass sourceUrl from a prior result.',
+      inputSchema: z.object({
+        sourceUrl: z.string().url(),
+        offset: z.number().int().nonnegative().default(0),
+        limit: z.number().int().min(1).max(200).default(20),
+        includeAssets: z.boolean().default(false),
+      }),
+    },
+    async input =>
+      result(compactPageLinks(await services.links.getPageLinks(
+          input.sourceUrl,
+          input.offset ?? 0,
+          input.limit ?? 20,
+          input.includeAssets ?? false,
+        )),
+      ),
   );
 
   tools.list_promotions = server.registerTool(
@@ -644,12 +1347,24 @@ export function registerMcpTools(
     {
       title: 'List Ford promotions',
       description:
-        'List published dealer promotions only; financing plans are a separate category and are not included. If the buyer also asks for financing, call search_offers as a separate search.',
+        'List Ford Uruapan dealer promotions. It does not list Ford Credit financing plans. Summary returns 3 compact records per page; set detail="full" for complete terms and structured fields, or raise limit (max 20). Use search_offers for Ford Credit financing.',
       inputSchema: z.object({
-        filters: z.record(z.string(), z.unknown()).default({}),
+        filters: z.object({
+          model: z.string().optional(),
+          modelYear: modelYearSchema.optional(),
+          activeOnly: z.boolean().optional(),
+          asOf: z.string().optional(),
+          limit: z.number().int().min(1).max(20).default(3),
+          offset: z.number().int().nonnegative().default(0),
+          detail: z.enum(['summary', 'full']).default('summary'),
+        }).default({limit: 3, offset: 0, detail: 'summary'}),
       }),
     },
-    async input => result(await services.promotions.list(input.filters)),
+    async input => {
+      const {limit, offset, detail, ...filters} = input.filters;
+      const rows = await services.promotions.list(filters);
+      return result(compactPromotionResults(rows, limit, offset, detail));
+    },
   );
 
   tools.search_offers = server.registerTool(
@@ -657,7 +1372,7 @@ export function registerMcpTools(
     {
       title: 'Search Ford financing and structured offers',
       description:
-        "Use for financing plans and structured commercial offers. Use this when a named model is already known and the buyer asks only about financing, monthly payment, down payment, or cash price, even when they state a budget. Dealer promotions are listed separately by list_promotions. For finance searches set offerType: 'financing'. A query can be omitted; the server builds one from filters. Put filters in the filters object; top-level model, modelYear, offerType, maxCashPrice, and common filter fields are also accepted. Use the exact model name and modelYear when named; these filters are enforced on returned offers. Result limit defaults to 2. State each validityDisclosure and termConflictDisclosure when present; explain both terms and say they differ.",
+        "Use for Ford Credit financing and structured payment-plan searches, including monthly payment, down payment, rate, CAT, and term. Use when the buyer asks only about financing or names a model and asks for its plan, even with a budget. Dealer promotion cards belong to list_promotions. Set offerType to financing or months_without_interest when specified; exact model and modelYear/term filters are enforced. The response includes source-backed structured plan inputs where available. A query may be omitted; default result limit is 2. State validity and term-conflict disclosures when returned.",
       inputSchema: z.object({
         query: z
           .string()
@@ -670,7 +1385,7 @@ export function registerMcpTools(
           .transform(value => value ?? undefined),
         filters: offerFiltersSchema,
         model: z.string().nullable().optional(),
-        modelYear: z.number().int().nullable().optional(),
+        modelYear: modelYearSchema.nullable().optional(),
         offerType: z
           .enum([
             'promotion',
@@ -693,6 +1408,7 @@ export function registerMcpTools(
           .nonnegative()
           .nullable()
           .optional(),
+        termMonths: z.number().int().positive().nullable().optional(),
         provider: z.string().nullable().optional(),
         activeOnly: z.boolean().nullable().optional(),
         asOf: z.string().nullable().optional(),
@@ -714,6 +1430,7 @@ export function registerMcpTools(
         maxMonthlyPayment: input.maxMonthlyPayment,
         maxDownPayment: input.maxDownPayment,
         minimumMonthsWithoutInterest: input.minimumMonthsWithoutInterest,
+        termMonths: input.termMonths,
         provider: input.provider,
         activeOnly: input.activeOnly,
         asOf: input.asOf,
@@ -760,7 +1477,8 @@ export function registerMcpTools(
     'get_catalog_status',
     {
       title: 'Get catalog status',
-      description: 'Report catalog crawl and embedding freshness.',
+      description:
+        'Use only when asked about catalog freshness, crawl time, or number of catalog records. This is a catalog count, not live dealer inventory.',
       inputSchema: z.object({}),
     },
     async () => result(await services.catalog.status()),

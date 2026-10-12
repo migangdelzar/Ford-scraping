@@ -1,19 +1,21 @@
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import type {Pool} from 'pg';
 import {createPool} from '../../src/storage/database.js';
+import {integrationDatabaseUrl} from './integration-database.js';
 import {
   PageRepository,
   type FetchedPage,
 } from '../../src/storage/page-repository.js';
 import {CatalogRepository} from '../../src/storage/catalog-repository.js';
 import {DocumentRepository} from '../../src/storage/document-repository.js';
+import {OfferRepository} from '../../src/storage/offer-repository.js';
 import type {EmbeddingProvider} from '../../src/embeddings/provider.js';
+import type {OfferCandidate} from '../../src/domain/contracts.js';
+import {buildOfferDocument} from '../../src/domain/offers.js';
 import {SearchRepository} from '../../src/storage/search-repository.js';
 import {SearchService} from '../../src/search/search-service.js';
 
-const databaseUrl =
-  process.env.DATABASE_URL ??
-  'postgres://postgres:postgres@localhost:5432/ford';
+const databaseUrl = integrationDatabaseUrl();
 let pool: Pool;
 
 function vector(first: number): number[] {
@@ -30,6 +32,7 @@ describe('hybrid search repository', () => {
     const pages = new PageRepository(pool);
     const catalog = new CatalogRepository(pool);
     const documents = new DocumentRepository(pool);
+    const offers = new OfferRepository(pool);
     const sourcePage: FetchedPage = {
       sourceBaseUrl: 'https://www.forduruapan.mx',
       sourceName: 'Ford Uruapan',
@@ -96,6 +99,33 @@ describe('hybrid search repository', () => {
         'test-model',
       );
     }
+    const offerCandidate: OfferCandidate = {
+      title: 'Territory monthly financing plan',
+      description: 'SUV familiar con tecnología, conectividad y espacio.',
+      offerType: 'financing',
+      provider: 'Ford Credit',
+      modelName: 'Territory',
+      modelYear: 2026,
+      currency: 'MXN',
+      requiresCreditApproval: true,
+      sourceUrl: page.url,
+      metadata: {},
+    };
+    const offer = await offers.upsertOffer(offerCandidate, page);
+    await documents.upsertOfferDocument(
+      offer,
+      buildOfferDocument({id: offer.offerId, ...offerCandidate}),
+      page.id,
+    );
+    const offerDocument = await pool.query<{id: string}>(
+      'SELECT id FROM ford.documents WHERE offer_id = $1',
+      [offer.offerId],
+    );
+    await documents.saveReady(
+      offerDocument.rows[0].id,
+      vector(1),
+      'test-model',
+    );
   });
 
   afterAll(async () => {
@@ -123,5 +153,27 @@ describe('hybrid search repository', () => {
     expect(response.results.map(result => result.modelName)).not.toContain(
       'Explorer',
     );
+  });
+
+  it('does not include financing documents in vehicle search evidence', async () => {
+    const provider: EmbeddingProvider = {
+      model: 'test-model',
+      dimensions: 1024,
+      available: true,
+      embed: async () => [vector(1)],
+    };
+    const service = new SearchService(new SearchRepository(pool), provider);
+
+    const response = await service.search({
+      query: 'SUV familiar con tecnología, conectividad y espacio',
+      filters: {modelYear: 2026},
+    });
+
+    expect(response.results.flatMap(result => result.matchedSections)).not.toContain(
+      'offer',
+    );
+    expect(
+      response.results.flatMap(result => result.evidence.map(hit => hit.title)),
+    ).not.toContain('Territory — Territory monthly financing plan');
   });
 });

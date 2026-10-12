@@ -1,6 +1,7 @@
 import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import type {Pool} from 'pg';
 import {createPool} from '../../src/storage/database.js';
+import {integrationDatabaseUrl} from './integration-database.js';
 import {
   PageRepository,
   type FetchedPage,
@@ -14,9 +15,7 @@ import type {EmbeddingProvider} from '../../src/embeddings/provider.js';
 import type {OfferCandidate} from '../../src/domain/contracts.js';
 import {buildOfferDocument} from '../../src/domain/offers.js';
 
-const databaseUrl =
-  process.env.DATABASE_URL ??
-  'postgres://postgres:postgres@localhost:5432/ford';
+const databaseUrl = integrationDatabaseUrl();
 let pool: Pool;
 
 function vector(first: number): number[] {

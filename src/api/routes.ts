@@ -6,6 +6,7 @@ const searchSchema = z.object({
   query: z.string().trim().min(1),
   filters: z
     .object({
+      model: z.string().trim().min(1).optional(),
       minPrice: z.number().nonnegative().optional(),
       maxPrice: z.number().nonnegative().optional(),
       modelYear: z.number().int().min(1900).max(2200).optional(),

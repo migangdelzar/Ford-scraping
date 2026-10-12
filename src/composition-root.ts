@@ -4,6 +4,7 @@ import {PageRepository} from './storage/page-repository.js';
 import {CatalogRepository} from './storage/catalog-repository.js';
 import {DocumentRepository} from './storage/document-repository.js';
 import {OfferRepository} from './storage/offer-repository.js';
+import {ComparisonRepository} from './storage/comparison-repository.js';
 import {SearchRepository} from './storage/search-repository.js';
 import {createEmbeddingProvider} from './embeddings/provider.js';
 import {SearchService} from './search/search-service.js';
@@ -13,6 +14,8 @@ import {
   ProvenanceService,
   PromotionService,
   CatalogStatusService,
+  PageLinkService,
+  ComparisonService,
 } from './storage/read-services.js';
 import {FordFinanceClient} from './finance/ford-finance-client.js';
 import {FinancingSyncService} from './finance/financing-sync.js';
@@ -38,6 +41,7 @@ export function createApplication(config: AppConfig) {
   const catalog = new CatalogRepository(pool);
   const documents = new DocumentRepository(pool);
   const offers = new OfferRepository(pool);
+  const comparisonsRepo = new ComparisonRepository(pool);
   const usedVehicles = new UsedVehicleRepository(pool);
   const syncRuns = new SyncRunRepository(pool);
   const syncLock = new PostgresAdvisoryLock(pool);
@@ -96,7 +100,7 @@ export function createApplication(config: AppConfig) {
         }),
     },
     pages,
-    ingestPage: page => ingestPage(page, catalog, documents, offers),
+    ingestPage: page => ingestPage(page, catalog, documents, offers, comparisonsRepo),
     usedVehicles,
     usedInventory,
     financing: financingSync,
@@ -106,7 +110,9 @@ export function createApplication(config: AppConfig) {
   });
   const vehicles = new VehicleQueryService(pool);
   const provenance = new ProvenanceService(pool);
+  const links = new PageLinkService(pool);
   const promotions = new PromotionService(pool);
+  const comparisons = new ComparisonService(pool);
   const catalogStatus = new CatalogStatusService(pool);
 
   const apiServices: ApiServices = {
@@ -118,9 +124,11 @@ export function createApplication(config: AppConfig) {
     search,
     vehicles,
     provenance,
+    links,
     promotions,
     offers: offerSearch,
     catalog: catalogStatus,
+    comparisons,
   };
 
   return {
@@ -134,6 +142,7 @@ export function createApplication(config: AppConfig) {
     catalog,
     documents,
     offers,
+    comparisonsRepo,
     financeClient,
     financingSync,
     synchronization,
@@ -141,7 +150,9 @@ export function createApplication(config: AppConfig) {
     offerSearch,
     vehicles,
     provenance,
+    links,
     promotions,
+    comparisons,
     catalogStatus,
     apiServices,
     mcpServices,

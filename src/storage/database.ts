@@ -15,7 +15,8 @@ export async function runMigrations(
   try {
     await client.query('BEGIN');
     await client.query(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
+      CREATE SCHEMA IF NOT EXISTS ford;
+      CREATE TABLE IF NOT EXISTS ford.schema_migrations (
         filename TEXT PRIMARY KEY,
         applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
@@ -27,7 +28,7 @@ export async function runMigrations(
 
     for (const file of files) {
       const applied = await client.query(
-        'SELECT 1 FROM schema_migrations WHERE filename = $1',
+        'SELECT 1 FROM ford.schema_migrations WHERE filename = $1',
         [file],
       );
       if (applied.rowCount) continue;
@@ -36,7 +37,7 @@ export async function runMigrations(
         await readFile(join(migrationsDirectory, file), 'utf8'),
       );
       await client.query(
-        'INSERT INTO schema_migrations (filename) VALUES ($1)',
+        'INSERT INTO ford.schema_migrations (filename) VALUES ($1)',
         [basename(file)],
       );
     }

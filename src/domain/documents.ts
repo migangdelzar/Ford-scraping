@@ -28,6 +28,15 @@ function context(vehicle: VehicleAggregate): string {
 
 export function buildDocuments(vehicle: VehicleAggregate): DocumentCandidate[] {
   const prefix = context(vehicle);
+  const modelContext = [
+    `Ford ${vehicle.modelName} ${vehicle.modelYear}`,
+    vehicle.category ? `Categoría ${vehicle.category}` : undefined,
+    vehicle.description?.trim(),
+    ...Object.entries(vehicle.sections).map(([name, text]) =>
+      text.trim() ? `${name}: ${text.trim()}` : undefined,
+    ),
+  ].filter((line): line is string => Boolean(line));
+  const semanticProfile = modelContext.join('. ');
   const documents: DocumentCandidate[] = [
     {
       documentType: 'overview',
@@ -35,6 +44,7 @@ export function buildDocuments(vehicle: VehicleAggregate): DocumentCandidate[] {
       chunkIndex: 0,
       title: `Ford ${vehicle.modelName} ${vehicle.modelYear}`,
       content: `${prefix}\n\n${vehicle.description ?? ''}`.trim(),
+      semanticContent: semanticProfile,
       modelName: vehicle.modelName,
       modelYear: vehicle.modelYear,
       metadata: {modelId: vehicle.modelId, modelYearId: vehicle.modelYearId},
@@ -49,6 +59,11 @@ export function buildDocuments(vehicle: VehicleAggregate): DocumentCandidate[] {
       chunkIndex: 0,
       title: `Ford ${vehicle.modelName} ${vehicle.modelYear} — ${section}`,
       content: `${prefix}\n\n${text.trim()}`,
+      semanticContent: [
+        `Ford ${vehicle.modelName} ${vehicle.modelYear}`,
+        vehicle.category ? `Categoría ${vehicle.category}` : undefined,
+        `${section}: ${text.trim()}`,
+      ].filter(Boolean).join('. '),
       modelName: vehicle.modelName,
       modelYear: vehicle.modelYear,
       metadata: {
@@ -66,6 +81,12 @@ export function buildDocuments(vehicle: VehicleAggregate): DocumentCandidate[] {
       chunkIndex: 0,
       title: `Ford ${vehicle.modelName} ${vehicle.modelYear} — especificaciones`,
       content: `${prefix}\n\n${vehicle.specifications.map(spec => `${spec.name}: ${spec.valueText}`).join('\n')}`,
+      semanticContent: [
+        `Especificaciones del Ford ${vehicle.modelName} ${vehicle.modelYear}`,
+        ...vehicle.specifications
+          .filter(spec => !isPriceField(spec.name))
+          .map(spec => `${spec.name}: ${spec.valueText}`),
+      ].join('. '),
       modelName: vehicle.modelName,
       modelYear: vehicle.modelYear,
       metadata: {modelId: vehicle.modelId, modelYearId: vehicle.modelYearId},
@@ -79,6 +100,7 @@ export function buildDocuments(vehicle: VehicleAggregate): DocumentCandidate[] {
       chunkIndex: 0,
       title: `Ford ${vehicle.modelName} ${vehicle.modelYear} — precio`,
       content: `${prefix}\n\nPrecio de lista inicial: $${vehicle.startingPrice.toLocaleString('en-US')} ${vehicle.currency}`,
+      semanticContent: '',
       modelName: vehicle.modelName,
       modelYear: vehicle.modelYear,
       metadata: {
@@ -89,6 +111,10 @@ export function buildDocuments(vehicle: VehicleAggregate): DocumentCandidate[] {
     });
   }
   return documents;
+}
+
+function isPriceField(name: string): boolean {
+  return /precio|price|costo/i.test(name);
 }
 
 export function hashDocument(content: string): string {

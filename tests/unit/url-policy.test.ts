@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {
   isAllowedPublicUrl,
   normalizeUrl,
+  stripComparisonSelectorParamsFromText,
   type CrawlPolicy,
 } from '../../src/crawl/url-policy.js';
 
@@ -18,6 +19,23 @@ describe('URL policy', () => {
         policy.baseUrl,
       ),
     ).toBe('https://www.forduruapan.mx/Todos/');
+  });
+
+  it('removes color selector query parameters from Comparativo route identities', () => {
+    expect(normalizeUrl(
+      'https://www.forduruapan.mx/EXPEDITION/27/Comparativo/KING-RANCH-MAX/?exterior=gris%20denim&interior=',
+      policy.baseUrl,
+    )).toBe('https://www.forduruapan.mx/EXPEDITION/27/Comparativo/KING-RANCH-MAX/');
+  });
+
+  it('removes selector URLs from scraped HTML text but leaves unrelated query URLs intact', () => {
+    expect(stripComparisonSelectorParamsFromText(
+      '<a href="/EXPEDITION/27/Comparativo/ACTIVE/?exterior=gris&amp;interior=">Compare</a> '
+      + '<a href="/Seminuevos/?page=2">Inventory</a>',
+    )).toBe(
+      '<a href="/EXPEDITION/27/Comparativo/ACTIVE/">Compare</a> '
+      + '<a href="/Seminuevos/?page=2">Inventory</a>',
+    );
   });
 
   it('rejects form and personal-data paths', () => {

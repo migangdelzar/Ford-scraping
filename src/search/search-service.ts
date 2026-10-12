@@ -45,6 +45,7 @@ export class SearchService {
             embedding,
             candidates,
             limit * 3,
+            this.embeddingProvider.model,
           );
           semanticSearch = 'ready';
         } catch {

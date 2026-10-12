@@ -42,6 +42,16 @@ describe('MCP evaluation orchestration', () => {
     ).toEqual(['model_missing_tool:search_offers']);
   });
 
+  it('flags conflicting tools even when the expected tool was called', () => {
+    expect(
+      getToolUseFailures(
+        ['compare_trims'],
+        ['compare_trims', 'compare_vehicles'],
+        ['compare_vehicles'],
+      ),
+    ).toEqual(['model_called_conflicting_tool:compare_vehicles']);
+  });
+
   it('provides executed search results as standard tool messages', () => {
     expect(
       toToolContextMessages([
