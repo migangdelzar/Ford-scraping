@@ -3,6 +3,10 @@ import {resolve} from 'node:path';
 import {describe, expect, it} from 'vitest';
 
 const workflowPath = resolve(process.cwd(), '.github/workflows/ci.yml');
+const releaseWorkflowPath = resolve(
+  process.cwd(),
+  '.github/workflows/release.yml',
+);
 const dockerfilePath = resolve(process.cwd(), 'Dockerfile');
 const composePath = resolve(process.cwd(), 'docker-compose.yml');
 const configPath = resolve(process.cwd(), 'src/config.ts');
@@ -84,5 +88,41 @@ describe('scheduler release contract', () => {
     expect(scheduler).toContain('SYNC_TIMEZONE: America/Mexico_City');
     expect(scheduler).not.toContain('migrate');
     expect(config).toContain("SYNC_SCHEDULE: z.string().default('0 12 1 * *')");
+  });
+});
+
+describe('MCP release workflow contract', () => {
+  it('accepts only an explicit operation and full source SHA', () => {
+    const workflow = readFileSync(releaseWorkflowPath, 'utf8');
+
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain('options: [deploy, rollback]');
+    expect(workflow).toContain('source_sha:');
+    expect(workflow).toContain('^[0-9a-f]{40}$');
+  });
+
+  it('builds and scans an immutable ARM64 image only after main CI succeeds', () => {
+    const workflow = readFileSync(releaseWorkflowPath, 'utf8');
+
+    expect(workflow).toContain('actions/workflows/ci.yml/runs?');
+    expect(workflow).toContain('head_sha=${SOURCE_SHA}');
+    expect(workflow).toContain('platforms: linux/arm64');
+    expect(workflow).toContain(
+      'IMAGE_DIGEST: ${{ steps.build.outputs.digest }}',
+    );
+    expect(workflow).toContain('image=${IMAGE_REPOSITORY}@${IMAGE_DIGEST}');
+    expect(workflow).toContain('limit-severities-for-sarif: true');
+  });
+
+  it('pins the public OCI action and keeps production behind both readiness gates', () => {
+    const workflow = readFileSync(releaseWorkflowPath, 'utf8');
+
+    expect(workflow).toMatch(
+      /uses: migangdelzar\/Ford-oci-deployment-action\/\.github\/actions\/oci-blue-green@[0-9a-f]{40}/,
+    );
+    expect(workflow).toContain("vars.PRODUCTION_DEPLOY_ENABLED == 'true'");
+    expect(workflow).toContain("vars.RUNTIME_VAULT_READY == 'true'");
+    expect(workflow).toContain('environment: production');
+    expect(workflow).not.toContain('continue-on-error: true');
   });
 });
