@@ -17,11 +17,13 @@ export interface OfferRef {
 export class OfferRepository {
   constructor(private readonly pool: Pool) {}
 
-  async listForDocumentRefresh(): Promise<Array<{
-    ref: OfferRef;
-    pageId?: number;
-    candidate: OfferCandidate & {id: string; variantName?: string};
-  }>> {
+  async listForDocumentRefresh(): Promise<
+    Array<{
+      ref: OfferRef;
+      pageId?: number;
+      candidate: OfferCandidate & {id: string; variantName?: string};
+    }>
+  > {
     const result = await this.pool.query(
       `SELECT o.id, o.model_year_id, o.variant_id, my.model_id,
               m.name AS model_name, my.model_year, v.name AS variant_name,
@@ -50,7 +52,8 @@ export class OfferRepository {
         modelYearId: row.model_year_id ?? undefined,
         variantId: row.variant_id ?? undefined,
       },
-      pageId: row.source_page_id === null ? undefined : Number(row.source_page_id),
+      pageId:
+        row.source_page_id === null ? undefined : Number(row.source_page_id),
       candidate: {
         id: String(row.id),
         modelName: row.model_name ?? undefined,
@@ -71,8 +74,12 @@ export class OfferRepository {
         annualInterestRate: optionalNumber(row.annual_interest_rate),
         catPercent: optionalNumber(row.cat_percent),
         taxRatePercent: optionalNumber(row.tax_rate_percent),
-        openingCommissionRatePercent: optionalNumber(row.opening_commission_rate_percent),
-        maximumDownPaymentPercent: optionalNumber(row.maximum_down_payment_percent),
+        openingCommissionRatePercent: optionalNumber(
+          row.opening_commission_rate_percent,
+        ),
+        maximumDownPaymentPercent: optionalNumber(
+          row.maximum_down_payment_percent,
+        ),
         lifeInsurancePrice: optionalNumber(row.life_insurance_price),
         currency: String(row.currency).trim(),
         validFrom: row.valid_from ?? undefined,
