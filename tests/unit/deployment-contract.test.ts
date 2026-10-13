@@ -95,9 +95,9 @@ describe('MCP release workflow contract', () => {
     const workflow = readFileSync(releaseWorkflowPath, 'utf8');
 
     expect(workflow).toContain('workflow_dispatch:');
-    expect(workflow).toContain("operation == 'validate'");
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
     expect(workflow).toContain(
-      'No image publishing or deployment was requested.',
+      'publication and deployment remain separately gated.',
     );
     expect(workflow).toContain('options: [validate, deploy, rollback]');
     expect(workflow).toContain('source_sha:');
