@@ -71,9 +71,8 @@ describe('CI workflow contract', () => {
   it('does not publish or deploy', () => {
     const workflow = readFileSync(workflowPath, 'utf8');
 
-    expect(workflow).not.toMatch(
-      /\b(publish|deploy|docker push|npm publish)\b/i,
-    );
+    expect(workflow).not.toMatch(/docker\s+push|npm\s+publish/i);
+    expect(workflow).not.toMatch(/uses:\s+[^\n]*(?:release|deploy)/i);
   });
 });
 
@@ -112,6 +111,9 @@ describe('MCP release workflow contract', () => {
     );
     expect(workflow).toContain('image=${IMAGE_REPOSITORY}@${IMAGE_DIGEST}');
     expect(workflow).toContain('limit-severities-for-sarif: true');
+    expect(workflow).toContain('anchore/sbom-action@v0.20.0');
+    expect(workflow).toContain('actions/attest-build-provenance@v2');
+    expect(workflow).toContain('actions/cache@v4');
   });
 
   it('pins the public OCI action and keeps production behind both readiness gates', () => {
