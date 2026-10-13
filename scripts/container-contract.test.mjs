@@ -43,3 +43,13 @@ test('manual release publishes and scans the verified source image by digest', a
   assert.match(workflow, /exit-code: '1'/);
   assert.match(workflow, /target: ford-mcp/);
 });
+
+test('manual deploy and rollback dispatches satisfy the release contract dependency', async () => {
+  const workflow = await read('.github/workflows/release.yml');
+
+  assert.match(
+    workflow,
+    /contract:[\s\S]*?if: github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'/,
+  );
+  assert.match(workflow, /needs\.contract\.result == 'success'/);
+});

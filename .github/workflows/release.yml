@@ -26,11 +26,11 @@ concurrency:
 jobs:
   contract:
     name: Verify release contract without publishing
-    if: github.event_name == 'push' || inputs.operation == 'validate'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - name: Confirm this is a validation-only event
-        run: echo "No image publishing or deployment was requested."
+      - name: Confirm release jobs enforce their own operation gates
+        run: echo "Release event contract accepted; publication and deployment remain separately gated."
 
   verify:
     name: Verify release source
