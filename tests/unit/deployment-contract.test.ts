@@ -95,7 +95,11 @@ describe('MCP release workflow contract', () => {
     const workflow = readFileSync(releaseWorkflowPath, 'utf8');
 
     expect(workflow).toContain('workflow_dispatch:');
-    expect(workflow).toContain('options: [deploy, rollback]');
+    expect(workflow).toContain("operation == 'validate'");
+    expect(workflow).toContain(
+      'No image publishing or deployment was requested.',
+    );
+    expect(workflow).toContain('options: [validate, deploy, rollback]');
     expect(workflow).toContain('source_sha:');
     expect(workflow).toContain('^[0-9a-f]{40}$');
   });
