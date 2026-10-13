@@ -28,15 +28,20 @@ function numericValue(value: string): {value?: number; unit?: string} {
   const match = value.match(/-?\d[\d,]*(?:\.\d+)?/);
   if (!match) return {};
   const parsed = Number(match[0].replaceAll(',', ''));
-  const unit = value.slice(match.index! + match[0].length).trim().match(/^[\p{L}%°$]+/u)?.[0];
+  const unit = value
+    .slice(match.index! + match[0].length)
+    .trim()
+    .match(/^[\p{L}%°$]+/u)?.[0];
   return {value: Number.isFinite(parsed) ? parsed : undefined, unit};
 }
 
-function routeParts(page: StoredPage): {
-  modelName: string;
-  modelYear: number;
-  fordTrimName: string;
-} | undefined {
+function routeParts(page: StoredPage):
+  | {
+      modelName: string;
+      modelYear: number;
+      fordTrimName: string;
+    }
+  | undefined {
   const match = new URL(page.url).pathname.match(
     /^\/([^/]+)\/(20\d{2}|\d{2})\/Comparativo\/([^/]+)\/?$/i,
   );
@@ -62,9 +67,12 @@ export class ComparisonParser implements PageParser<VehicleComparisonCandidate> 
     const fordHeader = vehicles[0] ? $(vehicles[0]) : undefined;
     const competitorHeader = vehicles[1] ? $(vehicles[1]) : undefined;
     const fordTitle = fordHeader?.find('.modelo-titulo').text().trim() ?? '';
-    const competitorTitle = competitorHeader?.find('.modelo-titulo').text().trim() ?? '';
-    const fordTrimName = fordHeader?.find('.modelo-version').text().trim() || route.fordTrimName;
-    const competitorTrim = competitorHeader?.find('.modelo-version').text().trim() || undefined;
+    const competitorTitle =
+      competitorHeader?.find('.modelo-titulo').text().trim() ?? '';
+    const fordTrimName =
+      fordHeader?.find('.modelo-version').text().trim() || route.fordTrimName;
+    const competitorTrim =
+      competitorHeader?.find('.modelo-version').text().trim() || undefined;
     const opponent = parseHeader(competitorTitle);
     const fordAttributes: ComparisonAttributeCandidate[] = [];
     const competitorAttributes: ComparisonAttributeCandidate[] = [];
@@ -72,38 +80,59 @@ export class ComparisonParser implements PageParser<VehicleComparisonCandidate> 
 
     $('#grupos .grupo').each((_, group) => {
       const category = $(group).find('.grupo-titulo').first().text().trim();
-      $(group).find('.grupo-items').each((__, row) => {
-        const columns = $(row).find('.grupo-item').toArray();
-        if (columns.length < 2) return;
-        const cells = columns.slice(0, 2).map(column => {
-          const cell = $(column);
-          return {
-            name: cell.find('.item-nombre').first().text().trim(),
-            value: cell.find('.item-valor').first().text().replace(/\s+/g, ' ').trim(),
-          };
-        });
-        const name = cells[0].name || cells[1].name;
-        if (!name) return;
-        const [fordCell, competitorCell] = cells;
-        rawRows.push({category, name, fordValue: fordCell.value, competitorValue: competitorCell.value});
-        for (const [target, cell] of [[fordAttributes, fordCell], [competitorAttributes, competitorCell]] as const) {
-          if (!cell.value) continue;
-          const numeric = numericValue(cell.value);
-          target.push({
+      $(group)
+        .find('.grupo-items')
+        .each((__, row) => {
+          const columns = $(row).find('.grupo-item').toArray();
+          if (columns.length < 2) return;
+          const cells = columns.slice(0, 2).map(column => {
+            const cell = $(column);
+            return {
+              name: cell.find('.item-nombre').first().text().trim(),
+              value: cell
+                .find('.item-valor')
+                .first()
+                .text()
+                .replace(/\s+/g, ' ')
+                .trim(),
+            };
+          });
+          const name = cells[0].name || cells[1].name;
+          if (!name) return;
+          const [fordCell, competitorCell] = cells;
+          rawRows.push({
             category,
             name,
-            normalizedName: normalizeSpecName(name),
-            valueText: cell.value,
-            ...(numeric.value !== undefined ? {valueNumeric: numeric.value} : {}),
-            ...(numeric.unit ? {unit: numeric.unit} : {}),
+            fordValue: fordCell.value,
+            competitorValue: competitorCell.value,
           });
-        }
-      });
+          for (const [target, cell] of [
+            [fordAttributes, fordCell],
+            [competitorAttributes, competitorCell],
+          ] as const) {
+            if (!cell.value) continue;
+            const numeric = numericValue(cell.value);
+            target.push({
+              category,
+              name,
+              normalizedName: normalizeSpecName(name),
+              valueText: cell.value,
+              ...(numeric.value !== undefined
+                ? {valueNumeric: numeric.value}
+                : {}),
+              ...(numeric.unit ? {unit: numeric.unit} : {}),
+            });
+          }
+        });
     });
 
     const fordImageUrl = $('#modelos-imagenes .modelo-img').eq(0).attr('src');
-    const competitorImageUrl = $('#modelos-imagenes .modelo-img').eq(1).attr('src');
-    const fordImage = fordImageUrl ? new URL(fordImageUrl, page.url).toString() : undefined;
+    const competitorImageUrl = $('#modelos-imagenes .modelo-img')
+      .eq(1)
+      .attr('src');
+    const fordImage = fordImageUrl
+      ? new URL(fordImageUrl, page.url).toString()
+      : undefined;
     const competitorImage = competitorImageUrl
       ? new URL(competitorImageUrl, page.url).toString()
       : undefined;
@@ -131,7 +160,9 @@ export class ComparisonParser implements PageParser<VehicleComparisonCandidate> 
     };
     const warnings = [
       ...(!fordHeader ? ['Comparativo page has no Ford header'] : []),
-      ...(!competitorHeader ? ['Comparativo page has no competitor header'] : []),
+      ...(!competitorHeader
+        ? ['Comparativo page has no competitor header']
+        : []),
       ...(rawRows.length ? [] : ['Comparativo page has no paired attributes']),
     ];
     return {value: candidate, warnings};

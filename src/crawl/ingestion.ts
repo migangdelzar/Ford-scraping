@@ -45,8 +45,9 @@ export function buildVehicleProfileContent(
   }
   const content = [
     `Ficha técnica del Ford ${modelName} ${modelYear}.`,
-    ...[...byCategory.entries()].map(([category, categoryFacts]) =>
-      `${category}: ${categoryFacts.join('; ')}.`,
+    ...[...byCategory.entries()].map(
+      ([category, categoryFacts]) =>
+        `${category}: ${categoryFacts.join('; ')}.`,
     ),
     'Los valores se conservan como aparecen en la ficha y no se asignan a una versión cuando la fuente los presenta agrupados.',
   ].join(' ');
@@ -54,7 +55,9 @@ export function buildVehicleProfileContent(
     .map(fact => `${fact.name} ${fact.valueText}`)
     .join(' ');
   const searchTopics = [
-    /todoterreno|off.?road|g\.o\.a\.t|4\s*x\s*4|vadeo|terreno/i.test(sourceFacts)
+    /todoterreno|off.?road|g\.o\.a\.t|4\s*x\s*4|vadeo|terreno/i.test(
+      sourceFacts,
+    )
       ? 'Consultas relacionadas: manejo todoterreno, caminos difíciles o de terracería, conducción fuera del camino y aventura al aire libre.'
       : undefined,
     /cajuela|maletero|capacidad de carga|espacio de carga/i.test(sourceFacts)
@@ -109,7 +112,13 @@ export async function ingestPages(
   };
   for (const page of await pages.list(limit)) {
     try {
-      const result = await ingestPage(page, catalog, documents, offers, comparisons);
+      const result = await ingestPage(
+        page,
+        catalog,
+        documents,
+        offers,
+        comparisons,
+      );
       summary.processed += 1;
       summary.documents += result.documents;
       summary.warnings += result.warnings;
@@ -203,13 +212,14 @@ export async function ingestPage(
       if (features.length > 0) {
         await catalog.upsertFeatures(ref, features, page);
       }
-      const profileFacts = parsed.value.filter(spec =>
-        spec.valueText.trim() !== '' &&
-        !/^[-—]$/.test(spec.valueText.trim()) &&
-        !/precio|price|costo/i.test(spec.name),
+      const profileFacts = parsed.value.filter(
+        spec =>
+          spec.valueText.trim() !== '' &&
+          !/^[-—]$/.test(spec.valueText.trim()) &&
+          !/precio|price|costo/i.test(spec.name),
       );
       if (profileFacts.length > 0) {
-        const factGroups: typeof profileFacts[] = [];
+        const factGroups: (typeof profileFacts)[] = [];
         for (let offset = 0; offset < profileFacts.length; offset += 10) {
           factGroups.push(profileFacts.slice(offset, offset + 10));
         }
@@ -253,47 +263,70 @@ export async function ingestPage(
     const parsed = new ComparisonParser().parse(page);
     warningCount += parsed.warnings.length;
     const ref = await comparisons.upsert(parsed.value, page);
-    const descriptiveValues = (attributes: typeof parsed.value.fordAttributes) =>
+    const descriptiveValues = (
+      attributes: typeof parsed.value.fordAttributes,
+    ) =>
       attributes
-        .filter(attribute =>
-          !/precio|price/i.test(attribute.name) &&
-          /[\p{L}]/u.test(attribute.valueText) &&
-          !/^(?:s[ií]|no|n\/a|[-—])$/i.test(attribute.valueText.trim()),
+        .filter(
+          attribute =>
+            !/precio|price/i.test(attribute.name) &&
+            /[\p{L}]/u.test(attribute.valueText) &&
+            !/^(?:s[ií]|no|n\/a|[-—])$/i.test(attribute.valueText.trim()),
         )
         .map(attribute => `${attribute.name}: ${attribute.valueText}`);
     const content = [
       `Ford ${parsed.value.modelName} ${parsed.value.modelYear} ${parsed.value.fordTrimName}`,
       `Comparación publicada por Ford Uruapan frente a ${parsed.value.competitorMake} ${parsed.value.competitorModel} ${parsed.value.competitorYear ?? ''} ${parsed.value.competitorTrim ?? ''}`.trim(),
-      ...parsed.value.fordAttributes.map(attribute => `${attribute.category} / ${attribute.name}: Ford ${attribute.valueText}`),
-      ...parsed.value.competitorAttributes.map(attribute => `${attribute.category} / ${attribute.name}: ${parsed.value.competitorMake} ${attribute.valueText}`),
+      ...parsed.value.fordAttributes.map(
+        attribute =>
+          `${attribute.category} / ${attribute.name}: Ford ${attribute.valueText}`,
+      ),
+      ...parsed.value.competitorAttributes.map(
+        attribute =>
+          `${attribute.category} / ${attribute.name}: ${parsed.value.competitorMake} ${attribute.valueText}`,
+      ),
     ].join('\n');
     const fordNarrative = descriptiveValues(parsed.value.fordAttributes);
-    const competitorNarrative = descriptiveValues(parsed.value.competitorAttributes);
+    const competitorNarrative = descriptiveValues(
+      parsed.value.competitorAttributes,
+    );
     const semanticContent = [
       `Comparación de Ford ${parsed.value.modelName} ${parsed.value.modelYear} ${parsed.value.fordTrimName} con ${parsed.value.competitorMake} ${parsed.value.competitorModel} ${parsed.value.competitorYear ?? ''} ${parsed.value.competitorTrim ?? ''}.`.trim(),
       `La ficha Ford Uruapan compara equipamiento y características en las categorías ${[...new Set(parsed.value.fordAttributes.map(attribute => attribute.category).filter(Boolean))].join(', ')}.`,
-      fordNarrative.length ? `En el lado Ford se describen ${fordNarrative.join('; ')}.` : undefined,
-      competitorNarrative.length ? `En el lado ${parsed.value.competitorMake} se describen ${competitorNarrative.join('; ')}.` : undefined,
+      fordNarrative.length
+        ? `En el lado Ford se describen ${fordNarrative.join('; ')}.`
+        : undefined,
+      competitorNarrative.length
+        ? `En el lado ${parsed.value.competitorMake} se describen ${competitorNarrative.join('; ')}.`
+        : undefined,
       'Útil para consultas que comparan versiones Ford con vehículos de otras marcas.',
-    ].filter(Boolean).join(' ');
-    await documents.upsertDocuments(ref, [{
-      documentType: 'vehicle_comparison',
-      sectionKey: `comparativo:${normalizeModelKey(parsed.value.fordTrimName)}:${normalizeModelKey(parsed.value.competitorMake + parsed.value.competitorModel)}`,
-      title: `${parsed.value.modelName} ${parsed.value.modelYear} ${parsed.value.fordTrimName} vs ${parsed.value.competitorMake} ${parsed.value.competitorModel}`,
-      content,
-      semanticContent,
-      variantId: ref.variantId,
-      modelName: parsed.value.modelName,
-      modelYear: parsed.value.modelYear,
-      metadata: {
-        sourceUrl: page.url,
-        fordTrim: parsed.value.fordTrimName,
-        competitorMake: parsed.value.competitorMake,
-        competitorModel: parsed.value.competitorModel,
-        fordImageUrl: parsed.value.fordImageUrl,
-        competitorImageUrl: parsed.value.competitorImageUrl,
-      },
-    }], page.id);
+    ]
+      .filter(Boolean)
+      .join(' ');
+    await documents.upsertDocuments(
+      ref,
+      [
+        {
+          documentType: 'vehicle_comparison',
+          sectionKey: `comparativo:${normalizeModelKey(parsed.value.fordTrimName)}:${normalizeModelKey(parsed.value.competitorMake + parsed.value.competitorModel)}`,
+          title: `${parsed.value.modelName} ${parsed.value.modelYear} ${parsed.value.fordTrimName} vs ${parsed.value.competitorMake} ${parsed.value.competitorModel}`,
+          content,
+          semanticContent,
+          variantId: ref.variantId,
+          modelName: parsed.value.modelName,
+          modelYear: parsed.value.modelYear,
+          metadata: {
+            sourceUrl: page.url,
+            fordTrim: parsed.value.fordTrimName,
+            competitorMake: parsed.value.competitorMake,
+            competitorModel: parsed.value.competitorModel,
+            fordImageUrl: parsed.value.fordImageUrl,
+            competitorImageUrl: parsed.value.competitorImageUrl,
+          },
+        },
+      ],
+      page.id,
+    );
     documentCount += 1;
   } else if (
     [
