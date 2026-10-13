@@ -13,6 +13,22 @@ test('scraper image defaults to the monthly scheduler command', async () => {
   );
 });
 
+test('runtime image contains only production dependencies on the supported Debian release', async () => {
+  const dockerfile = await read('Dockerfile');
+
+  assert.match(dockerfile, /^FROM node:22-trixie-slim AS production-deps$/m);
+  assert.match(dockerfile, /^RUN npm ci --omit=dev$/m);
+  assert.match(
+    dockerfile,
+    /^COPY --from=production-deps \/app\/node_modules \.\/node_modules$/m,
+  );
+  assert.match(dockerfile, /^RUN rm -rf \/usr\/local\/lib\/node_modules\/npm/m);
+  assert.doesNotMatch(
+    dockerfile,
+    /^COPY --from=build \/app\/node_modules \.\/node_modules$/m,
+  );
+});
+
 test('CI builds the app image and starts both production commands', async () => {
   const workflow = await read('.github/workflows/ci.yml');
 
@@ -33,6 +49,15 @@ test('manual release publishes and scans the verified source image by digest', a
   assert.match(workflow, /platforms: linux\/arm64/);
   assert.match(workflow, /sha-\$\{\{ needs\.verify\.outputs\.source_sha \}\}/);
   assert.match(workflow, /aquasecurity\/trivy-action/);
+  assert.match(workflow, /input: \/tmp\/ford-scraping\.tar/);
+  assert.match(workflow, /outputs: type=docker,dest=\/tmp\/ford-scraping\.tar/);
+  assert.ok(
+    workflow.indexOf('name: Scan image') <
+      workflow.indexOf('name: Log in to GHCR'),
+    'the image must pass its scan before registry login and publication',
+  );
+  assert.match(workflow, /docker push "\$\{IMAGE_TAG\}"/);
+  assert.doesNotMatch(workflow, /push: true/);
   assert.match(workflow, /anchore\/sbom-action/);
   assert.match(workflow, /actions\/attest-build-provenance/);
   assert.match(workflow, /cache-to: type=local/);
