@@ -55,9 +55,9 @@ services:
       EMBEDDING_MODEL: qllama/bge-m3:q8_0
       EMBEDDING_DIMENSIONS: "1024"
       CRAWL_MAX_PAGES: "1000"
-      SYNC_SCHEDULE: "0 12 * * *"
+      SYNC_SCHEDULE: "0 12 1 * *"
       SYNC_TIMEZONE: America/Mexico_City
-    command: ["sh", "-c", "node dist/src/cli.js migrate && node dist/src/cli.js scheduler"]
+    command: ["node", "dist/src/cli.js", "scheduler"]
 
 volumes:
   ford-postgres-data:

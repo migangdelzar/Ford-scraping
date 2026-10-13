@@ -10,7 +10,7 @@ const envSchema = z.object({
   EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(1024),
   CRAWL_MAX_PAGES: z.coerce.number().int().positive().default(1000),
   CRAWL_CONCURRENCY: z.coerce.number().int().positive().default(3),
-  SYNC_SCHEDULE: z.string().default('0 12 * * *'),
+  SYNC_SCHEDULE: z.string().default('0 12 1 * *'),
   SYNC_TIMEZONE: z.string().default('America/Mexico_City'),
   LANGFUSE_PUBLIC_KEY: z.string().min(1).optional(),
   LANGFUSE_SECRET_KEY: z.string().min(1).optional(),

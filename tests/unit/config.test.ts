@@ -16,7 +16,7 @@ describe('loadConfig', () => {
     expect(config.embedding.model).toBe('bge-m3');
     expect(config.embedding.dimensions).toBe(1024);
     expect(config.crawl.maxPages).toBe(1000);
-    expect(config.sync.schedule).toBe('0 12 * * *');
+    expect(config.sync.schedule).toBe('0 12 1 * *');
     expect(config.sync.timezone).toBe('America/Mexico_City');
     expect(config.langfuse.enabled).toBe(false);
     expect(config.mcpHttp).toEqual({

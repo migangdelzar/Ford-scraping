@@ -3,6 +3,8 @@ import {resolve} from 'node:path';
 import {describe, expect, it} from 'vitest';
 
 const workflowPath = resolve(process.cwd(), '.github/workflows/ci.yml');
+const composePath = resolve(process.cwd(), 'docker-compose.yml');
+const configPath = resolve(process.cwd(), 'src/config.ts');
 
 describe('CI workflow contract', () => {
   it('runs the quality gates on pull requests and pushes to main', () => {
@@ -44,7 +46,9 @@ describe('CI workflow contract', () => {
     expect(workflow).toMatch(/name: Lint \(baseline debt\)[\s\S]*npm run lint/);
     expect(workflow).toMatch(/name: Build[\s\S]*npm run build/);
     expect(workflow).toMatch(/name: Unit tests[\s\S]*npm run test:unit/);
-    expect(workflow).toMatch(/name: Run integration tests[\s\S]*npm run test:integration/);
+    expect(workflow).toMatch(
+      /name: Run integration tests[\s\S]*npm run test:integration/,
+    );
   });
 
   it('does not publish or deploy', () => {
@@ -53,5 +57,19 @@ describe('CI workflow contract', () => {
     expect(workflow).not.toMatch(
       /\b(publish|deploy|docker push|npm publish)\b/i,
     );
+  });
+});
+
+describe('scheduler release contract', () => {
+  it('runs monthly at noon Mexico City time and never migrates on container startup', () => {
+    const compose = readFileSync(composePath, 'utf8');
+    const config = readFileSync(configPath, 'utf8');
+    const scheduler =
+      compose.match(/ {2}scheduler:[\s\S]*?(?=\nvolumes:)/)?.[0] ?? '';
+
+    expect(scheduler).toContain('SYNC_SCHEDULE: "0 12 1 * *"');
+    expect(scheduler).toContain('SYNC_TIMEZONE: America/Mexico_City');
+    expect(scheduler).not.toContain('migrate');
+    expect(config).toContain("SYNC_SCHEDULE: z.string().default('0 12 1 * *')");
   });
 });
