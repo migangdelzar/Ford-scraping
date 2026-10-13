@@ -16,26 +16,45 @@ const modelYearSchema = z.coerce
   .int()
   .min(MIN_SUPPORTED_MODEL_YEAR)
   .max(MAX_SUPPORTED_MODEL_YEAR)
-  .describe(`Supported Ford model years: ${MIN_SUPPORTED_MODEL_YEAR}-${MAX_SUPPORTED_MODEL_YEAR}.`);
+  .describe(
+    `Supported Ford model years: ${MIN_SUPPORTED_MODEL_YEAR}-${MAX_SUPPORTED_MODEL_YEAR}.`,
+  );
 
 export interface McpServices {
   search: {search(request: SearchRequest): Promise<unknown>};
   vehicles: {
-    getByModelYear(model: string, year: number, trim?: string): Promise<unknown>;
+    getByModelYear(
+      model: string,
+      year: number,
+      trim?: string,
+    ): Promise<unknown>;
     getAvailableModelYears(model: string): Promise<number[]>;
     compare(ids: string[]): Promise<unknown>;
   };
   provenance: {get(documentId: string): Promise<unknown>};
   links: {
-    getPageLinks(sourceUrl: string, offset?: number, limit?: number, includeAssets?: boolean): Promise<unknown>;
+    getPageLinks(
+      sourceUrl: string,
+      offset?: number,
+      limit?: number,
+      includeAssets?: boolean,
+    ): Promise<unknown>;
   };
   promotions: {list(filters: Record<string, unknown>): Promise<unknown>};
   offers: {searchOffers(request: OfferSearchRequest): Promise<unknown>};
   catalog: {status(): Promise<unknown>};
   comparisons: {
-    compareTrims(model: string, year: number, trims: string[]): Promise<unknown>;
+    compareTrims(
+      model: string,
+      year: number,
+      trims: string[],
+    ): Promise<unknown>;
     compareModelYears(model: string, years: number[]): Promise<unknown>;
-    getVariantComparisons(model: string, year: number, trim?: string): Promise<unknown>;
+    getVariantComparisons(
+      model: string,
+      year: number,
+      trim?: string,
+    ): Promise<unknown>;
   };
 }
 
@@ -128,7 +147,11 @@ const offerFiltersSchema = z
   .optional();
 
 function result(value: unknown) {
-  return {content: [{type: 'text' as const, text: JSON.stringify(cleanComparisonUrls(value))}]};
+  return {
+    content: [
+      {type: 'text' as const, text: JSON.stringify(cleanComparisonUrls(value))},
+    ],
+  };
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -137,9 +160,13 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function definedFields(value: Record<string, unknown>): Record<string, unknown> {
+function definedFields(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(value).filter(([, item]) => item !== null && item !== undefined && item !== ''),
+    Object.entries(value).filter(
+      ([, item]) => item !== null && item !== undefined && item !== '',
+    ),
   );
 }
 
@@ -150,7 +177,10 @@ function cleanComparisonUrls(value: unknown): unknown {
     if (typeof value !== 'string') return value;
     try {
       const url = new URL(value);
-      if (!/^\/.+\/(?:20\d{2}|\d{2})\/Comparativo\/[^/]+\/?$/i.test(url.pathname)) return value;
+      if (
+        !/^\/.+\/(?:20\d{2}|\d{2})\/Comparativo\/[^/]+\/?$/i.test(url.pathname)
+      )
+        return value;
       const selectors = [...url.searchParams.keys()].filter(key =>
         ['exterior', 'interior'].includes(key.toLowerCase()),
       );
@@ -162,7 +192,10 @@ function cleanComparisonUrls(value: unknown): unknown {
     }
   }
   return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, cleanComparisonUrls(item)]),
+    Object.entries(value).map(([key, item]) => [
+      key,
+      cleanComparisonUrls(item),
+    ]),
   );
 }
 
@@ -237,14 +270,18 @@ function compactVehicle(value: unknown, detailLimit = 8): unknown {
   if (!vehicle) return value;
   const sourceUrl = vehicle.source_url ?? vehicle.sourceUrl;
   const modelPageUrl =
-    vehicle.model_page_url ?? vehicle.modelPageUrl ??
+    vehicle.model_page_url ??
+    vehicle.modelPageUrl ??
     (vehicle.source_page_type === 'model' || vehicle.sourcePageType === 'model'
       ? sourceUrl
-      : vehicle.source_page_type === undefined && vehicle.sourcePageType === undefined
+      : vehicle.source_page_type === undefined &&
+          vehicle.sourcePageType === undefined
         ? sourceUrl
         : undefined);
-  const technicalSheetUrl = vehicle.technical_sheet_url ?? vehicle.technicalSheetUrl;
-  const priceSourceUrl = vehicle.price_source_url ?? vehicle.priceSourceUrl ?? sourceUrl;
+  const technicalSheetUrl =
+    vehicle.technical_sheet_url ?? vehicle.technicalSheetUrl;
+  const priceSourceUrl =
+    vehicle.price_source_url ?? vehicle.priceSourceUrl ?? sourceUrl;
   const defaultFactSource = technicalSheetUrl ?? modelPageUrl;
 
   const specifications = Array.isArray(vehicle.specifications)
@@ -274,7 +311,13 @@ function compactVehicle(value: unknown, detailLimit = 8): unknown {
     .filter((name): name is string => typeof name === 'string');
   const availableSpecifications = specifications.filter(spec => {
     const value = spec.value_text ?? spec.value ?? spec.value_numeric;
-    return value !== undefined && value !== null && value !== '' && value !== '—' && value !== '-';
+    return (
+      value !== undefined &&
+      value !== null &&
+      value !== '' &&
+      value !== '—' &&
+      value !== '-'
+    );
   });
   const compactSpecifications = availableSpecifications
     .slice(0, detailLimit)
@@ -284,9 +327,7 @@ function compactVehicle(value: unknown, detailLimit = 8): unknown {
         name: spec.name,
         value: spec.value_text ?? spec.value ?? spec.value_numeric,
         unit: spec.unit,
-        ...(source && source !== defaultFactSource
-          ? {sourceUrl: source}
-          : {}),
+        ...(source && source !== defaultFactSource ? {sourceUrl: source} : {}),
       });
     });
   const compactFeatures = features.slice(0, detailLimit).map(feature => {
@@ -306,18 +347,23 @@ function compactVehicle(value: unknown, detailLimit = 8): unknown {
     });
   });
   const images = Array.isArray(vehicle.images)
-    ? vehicle.images.map(record).filter(
-        (image): image is Record<string, unknown> => image !== undefined,
-      )
+    ? vehicle.images
+        .map(record)
+        .filter(
+          (image): image is Record<string, unknown> => image !== undefined,
+        )
     : [];
   const compactImages = images
     .slice(0, detailLimit === Number.POSITIVE_INFINITY ? 6 : 2)
     .map(image => image.url)
     .filter((url): url is string => typeof url === 'string');
   const variantRows = Array.isArray(vehicle.variants)
-    ? vehicle.variants.map(record).filter(
-        (variant): variant is Record<string, unknown> => variant !== undefined,
-      )
+    ? vehicle.variants
+        .map(record)
+        .filter(
+          (variant): variant is Record<string, unknown> =>
+            variant !== undefined,
+        )
     : [];
   const variants = variantRows.map(variant => {
     const variantSource = variant.source_url ?? variant.sourceUrl;
@@ -329,9 +375,9 @@ function compactVehicle(value: unknown, detailLimit = 8): unknown {
     };
   });
   const variantSourceUrls = new Set(
-    variants.map(variant => variant.sourceUrl).filter(
-      (url): url is string => typeof url === 'string',
-    ),
+    variants
+      .map(variant => variant.sourceUrl)
+      .filter((url): url is string => typeof url === 'string'),
   );
   const comparisonUrls = Array.isArray(vehicle.comparison_urls)
     ? vehicle.comparison_urls
@@ -346,32 +392,41 @@ function compactVehicle(value: unknown, detailLimit = 8): unknown {
             url,
           };
         })
-        .filter((item): item is {trim?: string; url: string} =>
-          item !== undefined && !variantSourceUrls.has(item.url),
+        .filter(
+          (item): item is {trim?: string; url: string} =>
+            item !== undefined && !variantSourceUrls.has(item.url),
         )
-        .filter((item, index, rows) => rows.findIndex(other => other.url === item.url) === index)
+        .filter(
+          (item, index, rows) =>
+            rows.findIndex(other => other.url === item.url) === index,
+        )
     : [];
 
   return definedFields({
     model: vehicle.model ?? vehicle.modelName ?? vehicle.model_name,
     year: vehicle.year ?? vehicle.modelYear ?? vehicle.model_year,
-    ...(vehicle.trim_name ?? vehicle.trim
+    ...((vehicle.trim_name ?? vehicle.trim)
       ? {trim: vehicle.trim_name ?? vehicle.trim}
       : {}),
-    ...(vehicle.trim_status ?? vehicle.trimStatus
+    ...((vehicle.trim_status ?? vehicle.trimStatus)
       ? {trimStatus: vehicle.trim_status ?? vehicle.trimStatus}
       : {}),
-    ...(vehicle.trim_source_url ?? vehicle.trimSourceUrl
+    ...((vehicle.trim_source_url ?? vehicle.trimSourceUrl)
       ? {trimSourceUrl: vehicle.trim_source_url ?? vehicle.trimSourceUrl}
       : {}),
     price: vehicle.price,
     priceDisplay: priceDisplay(vehicle.price, vehicle.currency ?? 'MXN'),
     currency: vehicle.currency,
     category: vehicle.category,
-    ...(priceSourceUrl && priceSourceUrl !== modelPageUrl ? {priceSourceUrl} : {}),
+    ...(priceSourceUrl && priceSourceUrl !== modelPageUrl
+      ? {priceSourceUrl}
+      : {}),
     modelPageUnavailable: !modelPageUrl,
     specificationCount: specifications.length,
-    specificationsOmitted: Math.max(0, availableSpecifications.length - detailLimit),
+    specificationsOmitted: Math.max(
+      0,
+      availableSpecifications.length - detailLimit,
+    ),
     missingSpecificationNames: missingSpecificationNames.slice(0, 3),
     missingSpecificationCount: missingSpecificationNames.length,
     specifications: compactSpecifications,
@@ -398,20 +453,27 @@ function compactVehicleSearch(value: unknown): unknown {
   const response = record(value);
   if (!response) return value;
   const results = Array.isArray(response.results)
-    ? response.results.map(record).filter(
-        (vehicle): vehicle is Record<string, unknown> => vehicle !== undefined,
-      )
+    ? response.results
+        .map(record)
+        .filter(
+          (vehicle): vehicle is Record<string, unknown> =>
+            vehicle !== undefined,
+        )
     : [];
   return {
     semanticSearch: response.semanticSearch,
     resultCount: results.length,
     results: results.map(vehicle => {
-      const modelPageUrl = vehicle.modelPageUrl ?? vehicle.model_page_url ?? vehicle.sourceUrl;
+      const modelPageUrl =
+        vehicle.modelPageUrl ?? vehicle.model_page_url ?? vehicle.sourceUrl;
       const priceSourceUrl = vehicle.priceSourceUrl ?? vehicle.price_source_url;
       const evidence = Array.isArray(vehicle.evidence)
-        ? vehicle.evidence.map(record).filter(
-            (item): item is Record<string, unknown> => item !== undefined,
-          ).slice(0, 2)
+        ? vehicle.evidence
+            .map(record)
+            .filter(
+              (item): item is Record<string, unknown> => item !== undefined,
+            )
+            .slice(0, 2)
         : [];
       return definedFields({
         model: vehicle.modelName ?? vehicle.model_name,
@@ -420,12 +482,15 @@ function compactVehicleSearch(value: unknown): unknown {
         currency: 'MXN',
         category: vehicle.category,
         modelPageUrl,
-        ...(priceSourceUrl && priceSourceUrl !== modelPageUrl ? {priceSourceUrl} : {}),
+        ...(priceSourceUrl && priceSourceUrl !== modelPageUrl
+          ? {priceSourceUrl}
+          : {}),
         evidence: evidence.map(item => {
           const content = typeof item.content === 'string' ? item.content : '';
           return {
             title: item.title,
-            excerpt: content.length > 320 ? `${content.slice(0, 320)}…` : content,
+            excerpt:
+              content.length > 320 ? `${content.slice(0, 320)}…` : content,
             ...(item.sourceUrl && item.sourceUrl !== modelPageUrl
               ? {sourceUrl: item.sourceUrl}
               : {}),
@@ -464,9 +529,9 @@ function compactPromotionResults(
   detail: 'summary' | 'full',
 ): unknown {
   if (!Array.isArray(value)) return value;
-  const rows = value.map(record).filter(
-    (row): row is Record<string, unknown> => row !== undefined,
-  );
+  const rows = value
+    .map(record)
+    .filter((row): row is Record<string, unknown> => row !== undefined);
   const results = rows.slice(offset, offset + limit).map(row => {
     const conditions = row.conditions ?? row.termsAndConditions;
     return definedFields({
@@ -480,17 +545,22 @@ function compactPromotionResults(
       downPaymentPercent: row.down_payment_percent ?? row.downPaymentPercent,
       monthlyPayment: row.monthly_payment ?? row.monthlyPayment,
       termMonths: row.term_months ?? row.termMonths,
-      monthsWithoutInterest: row.months_without_interest ?? row.monthsWithoutInterest,
+      monthsWithoutInterest:
+        row.months_without_interest ?? row.monthsWithoutInterest,
       annualInterestRate: row.annual_interest_rate ?? row.annualInterestRate,
       catPercent: row.cat_percent ?? row.catPercent,
-      requiresCreditApproval: row.requires_credit_approval ?? row.requiresCreditApproval,
+      requiresCreditApproval:
+        row.requires_credit_approval ?? row.requiresCreditApproval,
       currency: row.currency,
-      ...(detail === 'full' && row.description ? {description: row.description} : {}),
+      ...(detail === 'full' && row.description
+        ? {description: row.description}
+        : {}),
       benefits: row.benefits,
       validFrom: row.valid_from ?? row.validFrom,
       validUntil: row.valid_until ?? row.validUntil,
       validityStatus: row.validityStatus,
-      ...(detail === 'full' || (typeof conditions === 'string' && conditions.length <= 280)
+      ...(detail === 'full' ||
+      (typeof conditions === 'string' && conditions.length <= 280)
         ? {conditions}
         : typeof conditions === 'string' && conditions.length > 280
           ? {conditionsOmitted: true}
@@ -517,23 +587,26 @@ function compactYearComparison(
   const response = record(value);
   if (!response) return value;
   const foundYears = Array.isArray(response.foundYears)
-    ? response.foundYears.map(record).filter(
-        (year): year is Record<string, unknown> => year !== undefined,
-      )
+    ? response.foundYears
+        .map(record)
+        .filter((year): year is Record<string, unknown> => year !== undefined)
     : [];
   const yearPairs = Array.isArray(response.yearPairs)
-    ? response.yearPairs.map(record).filter(
-        (pair): pair is Record<string, unknown> => pair !== undefined,
-      )
+    ? response.yearPairs
+        .map(record)
+        .filter((pair): pair is Record<string, unknown> => pair !== undefined)
     : [];
   const years = foundYears.map(year => {
     const modelPageUrl = year.model_page_url;
     const priceSourceUrl = year.price_source_url;
     const technicalSheetUrl = year.technical_sheet_url;
     const variants = Array.isArray(year.variants)
-      ? year.variants.map(record).filter(
-          (variant): variant is Record<string, unknown> => variant !== undefined,
-        )
+      ? year.variants
+          .map(record)
+          .filter(
+            (variant): variant is Record<string, unknown> =>
+              variant !== undefined,
+          )
       : [];
     return definedFields({
       year: year.year,
@@ -542,61 +615,98 @@ function compactYearComparison(
       modelPageUrl,
       ...(technicalSheetUrl ? {technicalSheetUrl} : {}),
       modelPageUnavailable: !modelPageUrl,
-      trimLinks: variants.map(variant => definedFields({
-        trim: variant.trim,
-        ...(variant.sourceUrl && variant.sourceUrl !== modelPageUrl
-          ? {sourceUrl: variant.sourceUrl}
-          : {}),
-        comparisonUrl: variant.comparisonUrl,
-      })),
-      ...(priceSourceUrl && priceSourceUrl !== modelPageUrl ? {priceSourceUrl} : {}),
+      trimLinks: variants.map(variant =>
+        definedFields({
+          trim: variant.trim,
+          ...(variant.sourceUrl && variant.sourceUrl !== modelPageUrl
+            ? {sourceUrl: variant.sourceUrl}
+            : {}),
+          comparisonUrl: variant.comparisonUrl,
+        }),
+      ),
+      ...(priceSourceUrl && priceSourceUrl !== modelPageUrl
+        ? {priceSourceUrl}
+        : {}),
       promotions: Array.isArray(year.active_promotions)
-        ? year.active_promotions.map(record).filter(
-            (promotion): promotion is Record<string, unknown> => promotion !== undefined,
-          ).map(promotion => definedFields({
-            title: promotion.title,
-            discountAmount: promotion.discountAmount,
-            cashPrice: promotion.cashPrice,
-            validUntil: promotion.validUntil,
-            sourceUrl: promotion.sourceUrl,
-          }))
+        ? year.active_promotions
+            .map(record)
+            .filter(
+              (promotion): promotion is Record<string, unknown> =>
+                promotion !== undefined,
+            )
+            .map(promotion =>
+              definedFields({
+                title: promotion.title,
+                discountAmount: promotion.discountAmount,
+                cashPrice: promotion.cashPrice,
+                validUntil: promotion.validUntil,
+                sourceUrl: promotion.sourceUrl,
+              }),
+            )
         : [],
     });
   });
   const factPriority = (fact: Record<string, unknown>) => {
     const name = String(fact.name ?? '');
-    if (/motor|potencia|horsepower|torque|transmisi[oó]n|combustible|h[ií]brid/i.test(name)) return 0;
-    if (/seguridad|airbag|freno|asistencia|c[aá]mara|adapta|control crucero/i.test(name)) return 1;
-    if (/pasajero|carga|cajuela|dimensi|arrastre|tracci[oó]n|bater[ií]a/i.test(name)) return 2;
+    if (
+      /motor|potencia|horsepower|torque|transmisi[oó]n|combustible|h[ií]brid/i.test(
+        name,
+      )
+    )
+      return 0;
+    if (
+      /seguridad|airbag|freno|asistencia|c[aá]mara|adapta|control crucero/i.test(
+        name,
+      )
+    )
+      return 1;
+    if (
+      /pasajero|carga|cajuela|dimensi|arrastre|tracci[oó]n|bater[ií]a/i.test(
+        name,
+      )
+    )
+      return 2;
     return 3;
   };
   const changes = yearPairs.map(pair => {
     const facts = Array.isArray(pair.changedFacts)
-      ? pair.changedFacts.map(record).filter(
-          (fact): fact is Record<string, unknown> => fact !== undefined,
-        )
+      ? pair.changedFacts
+          .map(record)
+          .filter((fact): fact is Record<string, unknown> => fact !== undefined)
       : [];
-    const sortedFacts = [...facts].sort((left, right) => factPriority(left) - factPriority(right));
-    const selectedFacts = detail === 'full' ? sortedFacts : sortedFacts.slice(0, 5);
+    const sortedFacts = [...facts].sort(
+      (left, right) => factPriority(left) - factPriority(right),
+    );
+    const selectedFacts =
+      detail === 'full' ? sortedFacts : sortedFacts.slice(0, 5);
     const trimChanges = Array.isArray(pair.trimChanges)
-      ? pair.trimChanges.map(record).filter(
-          (trim): trim is Record<string, unknown> => trim !== undefined,
-        )
+      ? pair.trimChanges
+          .map(record)
+          .filter((trim): trim is Record<string, unknown> => trim !== undefined)
       : [];
     const selectedTrims = trimChanges.slice(trimOffset, trimOffset + trimLimit);
     const hasTrimChanges = trimChanges.some(trim => {
-      const trimFacts = Array.isArray(trim.changedFacts) ? trim.changedFacts : [];
+      const trimFacts = Array.isArray(trim.changedFacts)
+        ? trim.changedFacts
+        : [];
       const priceDifference = trim.priceDifferenceMxn;
-      return trimFacts.length > 0 ||
-        (priceDifference !== null && priceDifference !== undefined && Number(priceDifference) !== 0);
+      return (
+        trimFacts.length > 0 ||
+        (priceDifference !== null &&
+          priceDifference !== undefined &&
+          Number(priceDifference) !== 0)
+      );
     });
     return definedFields({
       fromYear: pair.fromYear,
       toYear: pair.toYear,
-      status: selectedFacts.length || hasTrimChanges ||
-        (pair.priceDifferenceMxn !== null && Number(pair.priceDifferenceMxn) !== 0)
-        ? 'source_backed_changes_found'
-        : 'no_source_backed_changes_found',
+      status:
+        selectedFacts.length ||
+        hasTrimChanges ||
+        (pair.priceDifferenceMxn !== null &&
+          Number(pair.priceDifferenceMxn) !== 0)
+          ? 'source_backed_changes_found'
+          : 'no_source_backed_changes_found',
       priceDifferenceMxn: pair.priceDifferenceMxn,
       priceSourceUrls: pair.priceSourceUrls,
       changedFacts: selectedFacts,
@@ -610,26 +720,29 @@ function compactYearComparison(
       },
       trimChanges: selectedTrims.map(trim => {
         const trimFacts = Array.isArray(trim.changedFacts)
-          ? trim.changedFacts.map(record).filter(
-              (fact): fact is Record<string, unknown> => fact !== undefined,
-            )
+          ? trim.changedFacts
+              .map(record)
+              .filter(
+                (fact): fact is Record<string, unknown> => fact !== undefined,
+              )
           : [];
-        const selectedTrimFacts = (detail === 'full' ? trimFacts : trimFacts.slice(0, 3))
-          .map(fact => {
-            const compactFact = {...fact};
-            const sourceUrls = record(trim.sourceUrls);
-            const older = record(fact.older);
-            const newer = record(fact.newer);
-            if (older?.sourceUrl && older.sourceUrl === sourceUrls?.from) {
-              compactFact.older = {...older};
-              delete (compactFact.older as Record<string, unknown>).sourceUrl;
-            }
-            if (newer?.sourceUrl && newer.sourceUrl === sourceUrls?.to) {
-              compactFact.newer = {...newer};
-              delete (compactFact.newer as Record<string, unknown>).sourceUrl;
-            }
-            return compactFact;
-          });
+        const selectedTrimFacts = (
+          detail === 'full' ? trimFacts : trimFacts.slice(0, 3)
+        ).map(fact => {
+          const compactFact = {...fact};
+          const sourceUrls = record(trim.sourceUrls);
+          const older = record(fact.older);
+          const newer = record(fact.newer);
+          if (older?.sourceUrl && older.sourceUrl === sourceUrls?.from) {
+            compactFact.older = {...older};
+            delete (compactFact.older as Record<string, unknown>).sourceUrl;
+          }
+          if (newer?.sourceUrl && newer.sourceUrl === sourceUrls?.to) {
+            compactFact.newer = {...newer};
+            delete (compactFact.newer as Record<string, unknown>).sourceUrl;
+          }
+          return compactFact;
+        });
         return definedFields({
           trim: trim.trim,
           priceDifferenceMxn: trim.priceDifferenceMxn,
@@ -653,24 +766,28 @@ function compactYearComparison(
   });
 }
 
-function compactTrimComparison(value: unknown, detail: 'summary' | 'full'): unknown {
+function compactTrimComparison(
+  value: unknown,
+  detail: 'summary' | 'full',
+): unknown {
   const response = record(value);
   if (!response) return value;
   const foundTrims = Array.isArray(response.foundTrims)
-    ? response.foundTrims.map(record).filter(
-        (trim): trim is Record<string, unknown> => trim !== undefined,
-      )
+    ? response.foundTrims
+        .map(record)
+        .filter((trim): trim is Record<string, unknown> => trim !== undefined)
     : [];
   const trimPairs = Array.isArray(response.trimPairs)
-    ? response.trimPairs.map(record).filter(
-        (pair): pair is Record<string, unknown> => pair !== undefined,
-      )
+    ? response.trimPairs
+        .map(record)
+        .filter((pair): pair is Record<string, unknown> => pair !== undefined)
     : [];
   return definedFields({
     model: response.model,
     year: response.year,
     modelPageUrl: response.modelPageUrl ?? response.model_page_url,
-    technicalSheetUrl: response.technicalSheetUrl ?? response.technical_sheet_url,
+    technicalSheetUrl:
+      response.technicalSheetUrl ?? response.technical_sheet_url,
     trims: foundTrims.map(trim => {
       const comparisonUrl = trim.comparison_url ?? trim.comparisonUrl;
       const priceSourceUrl = trim.price_source_url ?? trim.priceSourceUrl;
@@ -678,25 +795,47 @@ function compactTrimComparison(value: unknown, detail: 'summary' | 'full'): unkn
         trim: trim.trim,
         price: trim.price,
         currency: trim.currency,
-        ...(priceSourceUrl && priceSourceUrl !== comparisonUrl ? {priceSourceUrl} : {}),
+        ...(priceSourceUrl && priceSourceUrl !== comparisonUrl
+          ? {priceSourceUrl}
+          : {}),
         comparisonUrl,
       });
     }),
     comparisons: trimPairs.map(pair => {
       const facts = Array.isArray(pair.sharedFactDifferences)
-        ? pair.sharedFactDifferences.map(record).filter(
-            (fact): fact is Record<string, unknown> => fact !== undefined,
-          )
+        ? pair.sharedFactDifferences
+            .map(record)
+            .filter(
+              (fact): fact is Record<string, unknown> => fact !== undefined,
+            )
         : [];
       const factPriority = (fact: Record<string, unknown>) => {
         const name = String(fact.name ?? '');
-        if (/motor|potencia|horsepower|torque|transmisi[oó]n|combustible|h[ií]brid/i.test(name)) return 0;
-        if (/seguridad|airbag|freno|asistencia|c[aá]mara|adapta|control crucero/i.test(name)) return 1;
-        if (/pasajero|carga|cajuela|dimensi|arrastre|tracci[oó]n|bater[ií]a/i.test(name)) return 2;
+        if (
+          /motor|potencia|horsepower|torque|transmisi[oó]n|combustible|h[ií]brid/i.test(
+            name,
+          )
+        )
+          return 0;
+        if (
+          /seguridad|airbag|freno|asistencia|c[aá]mara|adapta|control crucero/i.test(
+            name,
+          )
+        )
+          return 1;
+        if (
+          /pasajero|carga|cajuela|dimensi|arrastre|tracci[oó]n|bater[ií]a/i.test(
+            name,
+          )
+        )
+          return 2;
         return 3;
       };
-      const sortedFacts = [...facts].sort((left, right) => factPriority(left) - factPriority(right));
-      const selectedFacts = detail === 'full' ? sortedFacts : sortedFacts.slice(0, 5);
+      const sortedFacts = [...facts].sort(
+        (left, right) => factPriority(left) - factPriority(right),
+      );
+      const selectedFacts =
+        detail === 'full' ? sortedFacts : sortedFacts.slice(0, 5);
       const hasPriceChange =
         pair.priceDifferenceMxn !== null &&
         pair.priceDifferenceMxn !== undefined &&
@@ -704,9 +843,10 @@ function compactTrimComparison(value: unknown, detail: 'summary' | 'full'): unkn
       return definedFields({
         leftTrim: pair.leftTrim,
         rightTrim: pair.rightTrim,
-        status: selectedFacts.length || hasPriceChange
-          ? 'source_backed_differences_found'
-          : 'no_source_backed_differences',
+        status:
+          selectedFacts.length || hasPriceChange
+            ? 'source_backed_differences_found'
+            : 'no_source_backed_differences',
         priceDifferenceMxn: pair.priceDifferenceMxn,
         differences: selectedFacts,
         ...(facts.length > selectedFacts.length
@@ -728,25 +868,32 @@ function compactCompetitorComparison(
   const response = record(value);
   if (!response) return value;
   const comparisons = Array.isArray(response.comparisons)
-    ? response.comparisons.map(record).filter(
-        (comparison): comparison is Record<string, unknown> => comparison !== undefined,
-      )
+    ? response.comparisons
+        .map(record)
+        .filter(
+          (comparison): comparison is Record<string, unknown> =>
+            comparison !== undefined,
+        )
     : [];
   return definedFields({
     model: response.model,
     year: response.year,
     trim: response.trim,
     modelPageUrl: response.modelPageUrl ?? response.model_page_url,
-    technicalSheetUrl: response.technicalSheetUrl ?? response.technical_sheet_url,
+    technicalSheetUrl:
+      response.technicalSheetUrl ?? response.technical_sheet_url,
     count: response.count ?? comparisons.length,
     offset,
     limit,
-    hasMore: offset + Math.max(0, Math.min(limit, comparisons.length - offset)) < comparisons.length,
+    hasMore:
+      offset + Math.max(0, Math.min(limit, comparisons.length - offset)) <
+      comparisons.length,
     comparisons: comparisons.slice(offset, offset + limit).map(comparison => {
       const pairedFacts = Array.isArray(comparison.paired_facts)
         ? comparison.paired_facts
         : [];
-      const selectedFacts = detail === 'full' ? pairedFacts : pairedFacts.slice(0, 5);
+      const selectedFacts =
+        detail === 'full' ? pairedFacts : pairedFacts.slice(0, 5);
       return definedFields({
         fordTrim: comparison.ford_trim,
         competitorMake: comparison.competitor_make,
@@ -961,13 +1108,15 @@ export function registerMcpTools(
           .filter(value => value !== undefined && value !== '')
           .join(' ') ||
         'Ford vehicles';
-      return result(compactVehicleSearch(
-        await services.search.search({
-          query,
-          filters: {...filters, ...(model ? {model} : {})},
-          limit: input.limit ?? 5,
-        }),
-      ));
+      return result(
+        compactVehicleSearch(
+          await services.search.search({
+            query,
+            filters: {...filters, ...(model ? {model} : {})},
+            limit: input.limit ?? 5,
+          }),
+        ),
+      );
     },
   );
 
@@ -992,14 +1141,14 @@ export function registerMcpTools(
       const subject = [model, year].filter(Boolean).join(' ');
       const query = input.query?.trim() || subject || 'Ford vehicles';
       const vehicleResponse = await services.search.search({
-          query,
-          filters: {
-            ...(model ? {model} : {}),
-            ...(year === undefined ? {} : {modelYear: year}),
-            ...(input.budget === undefined ? {} : {maxPrice: input.budget}),
-          },
-          limit: 1,
-        });
+        query,
+        filters: {
+          ...(model ? {model} : {}),
+          ...(year === undefined ? {} : {modelYear: year}),
+          ...(input.budget === undefined ? {} : {maxPrice: input.budget}),
+        },
+        limit: 1,
+      });
       const vehicleResults = record(vehicleResponse)?.results;
       const selectedVehicleResults = Array.isArray(vehicleResults)
         ? vehicleResults
@@ -1010,23 +1159,37 @@ export function registerMcpTools(
       const firstVehicle = Array.isArray(compactVehicles)
         ? record(compactVehicles[0])
         : undefined;
-      const matchedModel = model ?? (typeof firstVehicle?.model === 'string' ? firstVehicle.model : undefined);
-      const matchedYear = year ?? (typeof firstVehicle?.year === 'number' ? firstVehicle.year : undefined);
-      const offersQuery = `${matchedModel ?? query} ${matchedYear ?? ''} financing`.trim();
+      const matchedModel =
+        model ??
+        (typeof firstVehicle?.model === 'string'
+          ? firstVehicle.model
+          : undefined);
+      const matchedYear =
+        year ??
+        (typeof firstVehicle?.year === 'number'
+          ? firstVehicle.year
+          : undefined);
+      const offersQuery =
+        `${matchedModel ?? query} ${matchedYear ?? ''} financing`.trim();
       const offerResponse = await services.offers.searchOffers({
         query: offersQuery,
         filters: {
           ...(matchedModel ? {model: matchedModel} : {}),
           ...(matchedYear === undefined ? {} : {modelYear: matchedYear}),
           ...(input.budget === undefined ? {} : {maxCashPrice: input.budget}),
-          ...(input.termMonths === undefined ? {} : {termMonths: input.termMonths}),
+          ...(input.termMonths === undefined
+            ? {}
+            : {termMonths: input.termMonths}),
           offerType: 'financing',
         },
         limit: 1,
       });
-      const compactOffers = record(compactOfferSearch(
-        offerResponse, 1, {model: matchedModel, modelYear: matchedYear},
-      ));
+      const compactOffers = record(
+        compactOfferSearch(offerResponse, 1, {
+          model: matchedModel,
+          modelYear: matchedYear,
+        }),
+      );
       const vehicleSummary = firstVehicle
         ? `${firstVehicle.model ?? ''} ${firstVehicle.year ?? ''}: ${firstVehicle.priceDisplay ?? 'precio no disponible'}`.trim()
         : undefined;
@@ -1118,8 +1281,13 @@ export function registerMcpTools(
             'Alias for year; numeric strings are normalized. Omit both year fields to return all stored model years.',
           )
           .optional(),
-        trim: z.string().trim().min(1)
-          .describe('Optional exact trim/version, such as XL Gasolina 4x2. Never substitute a nearby trim.' )
+        trim: z
+          .string()
+          .trim()
+          .min(1)
+          .describe(
+            'Optional exact trim/version, such as XL Gasolina 4x2. Never substitute a nearby trim.',
+          )
           .optional(),
         detail: z.enum(['summary', 'full']).default('summary'),
       }),
@@ -1130,14 +1298,20 @@ export function registerMcpTools(
         const availableModelYears =
           await services.vehicles.getAvailableModelYears(input.model);
         const options = await Promise.all(
-          availableModelYears.filter(isSupportedModelYear).map(async year =>
-            compactVehicle(
-              prioritizeVehicleSpecifications(
-                await services.vehicles.getByModelYear(input.model, year, input.trim),
+          availableModelYears
+            .filter(isSupportedModelYear)
+            .map(async year =>
+              compactVehicle(
+                prioritizeVehicleSpecifications(
+                  await services.vehicles.getByModelYear(
+                    input.model,
+                    year,
+                    input.trim,
+                  ),
+                ),
+                input.detail === 'full' ? Number.POSITIVE_INFINITY : 5,
               ),
-              input.detail === 'full' ? Number.POSITIVE_INFINITY : 5,
             ),
-          ),
         );
         const foundOptions = options.filter(option => option !== null);
         return result({
@@ -1166,14 +1340,20 @@ export function registerMcpTools(
       const availableModelYears =
         await services.vehicles.getAvailableModelYears(input.model);
       const options = await Promise.all(
-        availableModelYears.filter(isSupportedModelYear).map(async year =>
-          compactVehicle(
-            prioritizeVehicleSpecifications(
-              await services.vehicles.getByModelYear(input.model, year, input.trim),
+        availableModelYears
+          .filter(isSupportedModelYear)
+          .map(async year =>
+            compactVehicle(
+              prioritizeVehicleSpecifications(
+                await services.vehicles.getByModelYear(
+                  input.model,
+                  year,
+                  input.trim,
+                ),
+              ),
+              input.detail === 'full' ? Number.POSITIVE_INFINITY : 5,
             ),
-            input.detail === 'full' ? Number.POSITIVE_INFINITY : 5,
           ),
-        ),
       );
       const foundOptions = options.filter(option => option !== null);
       return result({
@@ -1205,11 +1385,12 @@ export function registerMcpTools(
                 model: z
                   .string()
                   .min(1)
-                  .describe('Exact Ford nameplate and variant, not a trim name.'),
-                year: modelYearSchema
                   .describe(
-                    'Required model year for this item; the property is named year, not modelYear.',
+                    'Exact Ford nameplate and variant, not a trim name.',
                   ),
+                year: modelYearSchema.describe(
+                  'Required model year for this item; the property is named year, not modelYear.',
+                ),
               }),
             )
             .min(2)
@@ -1251,16 +1432,26 @@ export function registerMcpTools(
       description:
         'Compare two to five exact trims of the same Ford model and model year. Compact summary returns up to 5 source-backed differences per pair; use detail="full" for all differences. Empty differences mean the database has no paired source facts, not that trims are identical. Trim prices and direct Ford Comparativo URLs are included. Copy exact trim names. For different Ford models use compare_vehicles; across years use compare_model_years; another brand use get_variant_comparisons.',
       inputSchema: z.object({
-        model: z.string().min(1).describe('Exact Ford nameplate, without the trim name.'),
+        model: z
+          .string()
+          .min(1)
+          .describe('Exact Ford nameplate, without the trim name.'),
         year: modelYearSchema,
         trims: z.array(z.string().min(1)).min(2).max(5),
         detail: z.enum(['summary', 'full']).default('summary'),
       }),
     },
-    async input => result(compactTrimComparison(
-      await services.comparisons.compareTrims(input.model, input.year, input.trims),
-      input.detail,
-    )),
+    async input =>
+      result(
+        compactTrimComparison(
+          await services.comparisons.compareTrims(
+            input.model,
+            input.year,
+            input.trims,
+          ),
+          input.detail,
+        ),
+      ),
   );
 
   tools.compare_model_years = server.registerTool(
@@ -1277,12 +1468,18 @@ export function registerMcpTools(
         trimLimit: z.number().int().min(1).max(10).default(2),
       }),
     },
-    async input => result(compactYearComparison(
-      await services.comparisons.compareModelYears(input.model, input.years),
-      input.detail,
-      input.trimOffset ?? 0,
-      input.trimLimit ?? 2,
-    )),
+    async input =>
+      result(
+        compactYearComparison(
+          await services.comparisons.compareModelYears(
+            input.model,
+            input.years,
+          ),
+          input.detail,
+          input.trimOffset ?? 0,
+          input.trimLimit ?? 2,
+        ),
+      ),
   );
 
   tools.get_variant_comparisons = server.registerTool(
@@ -1300,12 +1497,19 @@ export function registerMcpTools(
         limit: z.number().int().min(1).max(20).default(3),
       }),
     },
-    async input => result(compactCompetitorComparison(
-      await services.comparisons.getVariantComparisons(input.model, input.year, input.trim),
-      input.detail,
-      input.offset,
-      input.limit,
-    )),
+    async input =>
+      result(
+        compactCompetitorComparison(
+          await services.comparisons.getVariantComparisons(
+            input.model,
+            input.year,
+            input.trim,
+          ),
+          input.detail,
+          input.offset,
+          input.limit,
+        ),
+      ),
   );
 
   tools.get_vehicle_provenance = server.registerTool(
@@ -1333,12 +1537,15 @@ export function registerMcpTools(
       }),
     },
     async input =>
-      result(compactPageLinks(await services.links.getPageLinks(
-          input.sourceUrl,
-          input.offset ?? 0,
-          input.limit ?? 20,
-          input.includeAssets ?? false,
-        )),
+      result(
+        compactPageLinks(
+          await services.links.getPageLinks(
+            input.sourceUrl,
+            input.offset ?? 0,
+            input.limit ?? 20,
+            input.includeAssets ?? false,
+          ),
+        ),
       ),
   );
 
@@ -1349,15 +1556,17 @@ export function registerMcpTools(
       description:
         'List Ford Uruapan dealer promotions. It does not list Ford Credit financing plans. Summary returns 3 compact records per page; set detail="full" for complete terms and structured fields, or raise limit (max 20). Use search_offers for Ford Credit financing.',
       inputSchema: z.object({
-        filters: z.object({
-          model: z.string().optional(),
-          modelYear: modelYearSchema.optional(),
-          activeOnly: z.boolean().optional(),
-          asOf: z.string().optional(),
-          limit: z.number().int().min(1).max(20).default(3),
-          offset: z.number().int().nonnegative().default(0),
-          detail: z.enum(['summary', 'full']).default('summary'),
-        }).default({limit: 3, offset: 0, detail: 'summary'}),
+        filters: z
+          .object({
+            model: z.string().optional(),
+            modelYear: modelYearSchema.optional(),
+            activeOnly: z.boolean().optional(),
+            asOf: z.string().optional(),
+            limit: z.number().int().min(1).max(20).default(3),
+            offset: z.number().int().nonnegative().default(0),
+            detail: z.enum(['summary', 'full']).default('summary'),
+          })
+          .default({limit: 3, offset: 0, detail: 'summary'}),
       }),
     },
     async input => {
@@ -1372,7 +1581,7 @@ export function registerMcpTools(
     {
       title: 'Search Ford financing and structured offers',
       description:
-        "Use for Ford Credit financing and structured payment-plan searches, including monthly payment, down payment, rate, CAT, and term. Use when the buyer asks only about financing or names a model and asks for its plan, even with a budget. Dealer promotion cards belong to list_promotions. Set offerType to financing or months_without_interest when specified; exact model and modelYear/term filters are enforced. The response includes source-backed structured plan inputs where available. A query may be omitted; default result limit is 2. State validity and term-conflict disclosures when returned.",
+        'Use for Ford Credit financing and structured payment-plan searches, including monthly payment, down payment, rate, CAT, and term. Use when the buyer asks only about financing or names a model and asks for its plan, even with a budget. Dealer promotion cards belong to list_promotions. Set offerType to financing or months_without_interest when specified; exact model and modelYear/term filters are enforced. The response includes source-backed structured plan inputs where available. A query may be omitted; default result limit is 2. State validity and term-conflict disclosures when returned.',
       inputSchema: z.object({
         query: z
           .string()

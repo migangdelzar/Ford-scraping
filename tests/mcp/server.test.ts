@@ -39,7 +39,11 @@ function services(): McpServices {
       }),
     },
     catalog: {status: vi.fn()},
-    comparisons: {compareTrims: vi.fn(), compareModelYears: vi.fn(), getVariantComparisons: vi.fn()},
+    comparisons: {
+      compareTrims: vi.fn(),
+      compareModelYears: vi.fn(),
+      getVariantComparisons: vi.fn(),
+    },
   };
 }
 
@@ -50,7 +54,10 @@ describe('MCP server', () => {
       services(),
     );
     const schema = tools.get_vehicle.inputSchema as unknown as {
-      safeParse(value: unknown): {success: boolean; data?: {modelYear?: number}};
+      safeParse(value: unknown): {
+        success: boolean;
+        data?: {modelYear?: number};
+      };
     };
 
     const parsed = schema.safeParse({model: 'EXPEDITION', modelYear: '2027'});
@@ -67,8 +74,19 @@ describe('MCP server', () => {
     const supportedInputs = [
       [tools.get_vehicle, {model: 'EXPEDITION', year: '2025'}],
       [tools.search_vehicles, {query: 'SUV', filters: {modelYear: 2026}}],
-      [tools.compare_vehicles, {models: [{model: 'RANGER', year: 2027}, {model: 'LOBO', year: 2026}]}],
-      [tools.compare_trims, {model: 'RANGER', year: 2025, trims: ['XL', 'XLT']}],
+      [
+        tools.compare_vehicles,
+        {
+          models: [
+            {model: 'RANGER', year: 2027},
+            {model: 'LOBO', year: 2026},
+          ],
+        },
+      ],
+      [
+        tools.compare_trims,
+        {model: 'RANGER', year: 2025, trims: ['XL', 'XLT']},
+      ],
       [tools.compare_model_years, {model: 'RANGER', years: [2025, 2027]}],
       [tools.get_variant_comparisons, {model: 'EXPEDITION', year: 2026}],
       [tools.search_vehicle_and_offers, {model: 'RANGER', modelYear: 2026}],
@@ -79,8 +97,19 @@ describe('MCP server', () => {
     const unsupportedInputs = [
       [tools.get_vehicle, {model: 'EXPEDITION', year: 2024}],
       [tools.search_vehicles, {query: 'SUV', filters: {modelYear: 2028}}],
-      [tools.compare_vehicles, {models: [{model: 'RANGER', year: 2024}, {model: 'LOBO', year: 2026}]}],
-      [tools.compare_trims, {model: 'RANGER', year: 2028, trims: ['XL', 'XLT']}],
+      [
+        tools.compare_vehicles,
+        {
+          models: [
+            {model: 'RANGER', year: 2024},
+            {model: 'LOBO', year: 2026},
+          ],
+        },
+      ],
+      [
+        tools.compare_trims,
+        {model: 'RANGER', year: 2028, trims: ['XL', 'XLT']},
+      ],
       [tools.compare_model_years, {model: 'RANGER', years: [2024, 2026]}],
       [tools.get_variant_comparisons, {model: 'EXPEDITION', year: 2028}],
       [tools.search_vehicle_and_offers, {model: 'RANGER', modelYear: 2024}],
@@ -128,7 +157,10 @@ describe('MCP server', () => {
 
     expect(
       schemaAccepts(tools.compare_vehicles, {
-        ids: ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002'],
+        ids: [
+          '00000000-0000-4000-8000-000000000001',
+          '00000000-0000-4000-8000-000000000002',
+        ],
       }),
     ).toBe(false);
     expect(
@@ -137,7 +169,10 @@ describe('MCP server', () => {
           {model: 'TERRITORY', year: 2026},
           {model: 'RANGER', year: 2026},
         ],
-        ids: ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002'],
+        ids: [
+          '00000000-0000-4000-8000-000000000001',
+          '00000000-0000-4000-8000-000000000002',
+        ],
       }),
     ).toBe(false);
   });
@@ -216,9 +251,7 @@ describe('MCP server', () => {
     expect(tools.search_vehicles.description).toContain(
       'SUV/crossover to category, not bodyType',
     );
-    expect(tools.search_vehicles.description).toContain(
-      'never construct them',
-    );
+    expect(tools.search_vehicles.description).toContain('never construct them');
     expect(tools.get_vehicle.description).toContain('exact specifications');
     expect(tools.compare_vehicles.description).toContain(
       'different Ford nameplates',
@@ -452,7 +485,11 @@ describe('MCP server', () => {
     )({model: 'MUSTANG', year: 2024}, {});
 
     expect(deps.vehicles.getAvailableModelYears).not.toHaveBeenCalled();
-    expect(deps.vehicles.getByModelYear).toHaveBeenCalledWith('MUSTANG', 2024, undefined);
+    expect(deps.vehicles.getByModelYear).toHaveBeenCalledWith(
+      'MUSTANG',
+      2024,
+      undefined,
+    );
   });
 
   it('returns available years when the requested model year has no catalog row', async () => {
@@ -620,7 +657,11 @@ describe('MCP server', () => {
 
     expect(deps.search.search).toHaveBeenCalledWith({
       query: 'F-150 2026 Híbridos y Eléctricos',
-      filters: {model: 'F-150', modelYear: 2026, category: 'Híbridos y Eléctricos'},
+      filters: {
+        model: 'F-150',
+        modelYear: 2026,
+        category: 'Híbridos y Eléctricos',
+      },
       limit: 5,
     });
   });
@@ -905,7 +946,9 @@ describe('MCP server', () => {
       services(),
     );
 
-    expect(tools.get_vehicle.description).toContain('available 2025-2027 model years');
+    expect(tools.get_vehicle.description).toContain(
+      'available 2025-2027 model years',
+    );
     expect(tools.get_vehicle.description).toContain(
       'every available specification and feature',
     );
@@ -932,31 +975,56 @@ describe('MCP server', () => {
       ) => Promise<unknown>
     )({model: 'MUSTANG', modelYear: 2026}, {});
 
-    expect(deps.vehicles.getByModelYear).toHaveBeenCalledWith('MUSTANG', 2026, undefined);
+    expect(deps.vehicles.getByModelYear).toHaveBeenCalledWith(
+      'MUSTANG',
+      2026,
+      undefined,
+    );
   });
 
   it('passes an explicitly requested trim to the exact vehicle lookup', async () => {
     const deps = services();
     vi.mocked(deps.vehicles.getByModelYear).mockResolvedValueOnce({
-      model: 'RANGER', year: 2027, trim_name: 'XL Gasolina 4x2',
-      trim_status: 'found', price: 775_000, specifications: [], features: [],
-      variants: [], comparison_urls: [],
+      model: 'RANGER',
+      year: 2027,
+      trim_name: 'XL Gasolina 4x2',
+      trim_status: 'found',
+      price: 775_000,
+      specifications: [],
+      features: [],
+      variants: [],
+      comparison_urls: [],
     });
     const tools = registerMcpTools(
-      new McpServer({name: 'ford-uruapan', version: '0.1.0'}), deps,
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      deps,
     );
 
-    const response = await (tools.get_vehicle.handler as unknown as (
-      input: unknown, context: unknown,
-    ) => Promise<{content: {text: string}[]}>)({
-      model: 'RANGER', year: 2027, trim: 'XL Gasolina 4x2', detail: 'full',
-    }, {});
+    const response = await (
+      tools.get_vehicle.handler as unknown as (
+        input: unknown,
+        context: unknown,
+      ) => Promise<{content: {text: string}[]}>
+    )(
+      {
+        model: 'RANGER',
+        year: 2027,
+        trim: 'XL Gasolina 4x2',
+        detail: 'full',
+      },
+      {},
+    );
 
     expect(deps.vehicles.getByModelYear).toHaveBeenCalledWith(
-      'RANGER', 2027, 'XL Gasolina 4x2',
+      'RANGER',
+      2027,
+      'XL Gasolina 4x2',
     );
     expect(JSON.parse(response.content[0].text)).toMatchObject({
-      model: 'RANGER', year: 2027, trim: 'XL Gasolina 4x2', trimStatus: 'found',
+      model: 'RANGER',
+      year: 2027,
+      trim: 'XL Gasolina 4x2',
+      trimStatus: 'found',
     });
   });
 
@@ -1016,30 +1084,47 @@ describe('MCP server', () => {
   it('returns exact trim comparison URLs and labels catalog price provenance clearly', async () => {
     const deps = services();
     vi.mocked(deps.vehicles.getByModelYear).mockResolvedValueOnce({
-      model: 'EXPEDITION', year: 2027, price: 1_794_900,
+      model: 'EXPEDITION',
+      year: 2027,
+      price: 1_794_900,
       source_url: 'https://www.forduruapan.mx/Todos/',
       model_page_url: 'https://www.forduruapan.mx/EXPEDITION/27/',
-      technical_sheet_url: 'https://www.forduruapan.mx/EXPEDITION/27/Ficha-Tecnica/',
-      specifications: [], features: [], variants: [],
-      comparison_urls: [{
-        trim_name: 'King Ranch Max',
-        url: 'https://www.forduruapan.mx/EXPEDITION/27/Comparativo/KING-RANCH-MAX/?exterior=gris%20denim&interior=',
-      }],
+      technical_sheet_url:
+        'https://www.forduruapan.mx/EXPEDITION/27/Ficha-Tecnica/',
+      specifications: [],
+      features: [],
+      variants: [],
+      comparison_urls: [
+        {
+          trim_name: 'King Ranch Max',
+          url: 'https://www.forduruapan.mx/EXPEDITION/27/Comparativo/KING-RANCH-MAX/?exterior=gris%20denim&interior=',
+        },
+      ],
     });
     const tools = registerMcpTools(
-      new McpServer({name: 'ford-uruapan', version: '0.1.0'}), deps,
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      deps,
     );
 
-    const response = await (tools.get_vehicle.handler as unknown as (
-      input: unknown, context: unknown,
-    ) => Promise<{content: {text: string}[]}>)({model: 'EXPEDITION', year: 2027}, {});
+    const response = await (
+      tools.get_vehicle.handler as unknown as (
+        input: unknown,
+        context: unknown,
+      ) => Promise<{content: {text: string}[]}>
+    )({model: 'EXPEDITION', year: 2027}, {});
     const vehicle = JSON.parse(response.content[0].text);
 
     expect(vehicle).toMatchObject({
       modelPageUrl: 'https://www.forduruapan.mx/EXPEDITION/27/',
-      technicalSheetUrl: 'https://www.forduruapan.mx/EXPEDITION/27/Ficha-Tecnica/',
+      technicalSheetUrl:
+        'https://www.forduruapan.mx/EXPEDITION/27/Ficha-Tecnica/',
       priceSourceUrl: 'https://www.forduruapan.mx/Todos/',
-      comparisonUrls: [{trim: 'King Ranch Max', url: 'https://www.forduruapan.mx/EXPEDITION/27/Comparativo/KING-RANCH-MAX/'}],
+      comparisonUrls: [
+        {
+          trim: 'King Ranch Max',
+          url: 'https://www.forduruapan.mx/EXPEDITION/27/Comparativo/KING-RANCH-MAX/',
+        },
+      ],
     });
     expect(vehicle.sourceUrl).toBeUndefined();
   });
@@ -1047,18 +1132,27 @@ describe('MCP server', () => {
   it('does not present a catalog source as a model page when a year-specific page is missing', async () => {
     const deps = services();
     vi.mocked(deps.vehicles.getByModelYear).mockResolvedValueOnce({
-      model: 'TERRITORY', year: 2026, price: 559_900,
+      model: 'TERRITORY',
+      year: 2026,
+      price: 559_900,
       source_url: 'https://www.forduruapan.mx/Todos/',
       source_page_type: 'catalog',
-      specifications: [], features: [], variants: [], comparison_urls: [],
+      specifications: [],
+      features: [],
+      variants: [],
+      comparison_urls: [],
     });
     const tools = registerMcpTools(
-      new McpServer({name: 'ford-uruapan', version: '0.1.0'}), deps,
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      deps,
     );
 
-    const response = await (tools.get_vehicle.handler as unknown as (
-      input: unknown, context: unknown,
-    ) => Promise<{content: {text: string}[]}>)({model: 'TERRITORY', year: 2026}, {});
+    const response = await (
+      tools.get_vehicle.handler as unknown as (
+        input: unknown,
+        context: unknown,
+      ) => Promise<{content: {text: string}[]}>
+    )({model: 'TERRITORY', year: 2026}, {});
     const vehicle = JSON.parse(response.content[0].text);
 
     expect(vehicle.modelPageUrl).toBeUndefined();
@@ -1069,165 +1163,344 @@ describe('MCP server', () => {
   it('lets the caller opt into asset links while defaulting route lookup to page links', async () => {
     const deps = services();
     vi.mocked(deps.links.getPageLinks).mockResolvedValueOnce({
-      source_url: 'https://ford.example/model', links: [], totalLinks: 4,
+      source_url: 'https://ford.example/model',
+      links: [],
+      totalLinks: 4,
     });
     const tools = registerMcpTools(
-      new McpServer({name: 'ford-uruapan', version: '0.1.0'}), deps,
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      deps,
     );
 
-    await (tools.get_page_links.handler as unknown as (
-      input: unknown, context: unknown,
-    ) => Promise<unknown>)({sourceUrl: 'https://ford.example/model'}, {});
+    await (
+      tools.get_page_links.handler as unknown as (
+        input: unknown,
+        context: unknown,
+      ) => Promise<unknown>
+    )({sourceUrl: 'https://ford.example/model'}, {});
 
     expect(deps.links.getPageLinks).toHaveBeenCalledWith(
-      'https://ford.example/model', 0, 20, false,
+      'https://ford.example/model',
+      0,
+      20,
+      false,
     );
-    expect(schemaAccepts(tools.get_page_links, {
-      sourceUrl: 'https://ford.example/model', includeAssets: true,
-    })).toBe(true);
+    expect(
+      schemaAccepts(tools.get_page_links, {
+        sourceUrl: 'https://ford.example/model',
+        includeAssets: true,
+      }),
+    ).toBe(true);
   });
 
   it('keeps shared-trim year changes and source links in the compact comparison output', async () => {
     const deps = services();
     vi.mocked(deps.comparisons.compareModelYears).mockResolvedValueOnce({
-      model: 'EXPEDITION', requestedYears: [2025, 2026], missingYears: [],
-      foundYears: [{year: 2025, model_page_url: 'https://ford.example/2025', technical_sheet_url: 'https://ford.example/2025/Ficha-Tecnica/', variants: [
-        {trim: 'Platinum', sourceUrl: 'https://ford.example/2025', comparisonUrl: 'https://ford.example/2025/Comparativo/PLATINUM/'}, {trim: 'Legacy'},
-      ]}, {year: 2026, variants: [{trim: 'Platinum'}, {trim: 'Ultimate'}]}],
-      yearPairs: [{fromYear: 2025, toYear: 2026, changedFacts: [], trimChanges: [
-        {trim: 'Platinum', priceDifferenceMxn: 10_000,
-          sourceUrls: {from: 'https://ford.example/old', to: 'https://ford.example/new'},
-          changedFacts: [{normalizedName: 'potencia', name: 'Potencia', older: {value: '400 HP'}, newer: {value: '440 HP'}}]},
-      ], unmatchedTrims: {from: ['Legacy'], to: ['Ultimate']}}],
+      model: 'EXPEDITION',
+      requestedYears: [2025, 2026],
+      missingYears: [],
+      foundYears: [
+        {
+          year: 2025,
+          model_page_url: 'https://ford.example/2025',
+          technical_sheet_url: 'https://ford.example/2025/Ficha-Tecnica/',
+          variants: [
+            {
+              trim: 'Platinum',
+              sourceUrl: 'https://ford.example/2025',
+              comparisonUrl: 'https://ford.example/2025/Comparativo/PLATINUM/',
+            },
+            {trim: 'Legacy'},
+          ],
+        },
+        {year: 2026, variants: [{trim: 'Platinum'}, {trim: 'Ultimate'}]},
+      ],
+      yearPairs: [
+        {
+          fromYear: 2025,
+          toYear: 2026,
+          changedFacts: [],
+          trimChanges: [
+            {
+              trim: 'Platinum',
+              priceDifferenceMxn: 10_000,
+              sourceUrls: {
+                from: 'https://ford.example/old',
+                to: 'https://ford.example/new',
+              },
+              changedFacts: [
+                {
+                  normalizedName: 'potencia',
+                  name: 'Potencia',
+                  older: {value: '400 HP'},
+                  newer: {value: '440 HP'},
+                },
+              ],
+            },
+          ],
+          unmatchedTrims: {from: ['Legacy'], to: ['Ultimate']},
+        },
+      ],
     });
     const tools = registerMcpTools(
-      new McpServer({name: 'ford-uruapan', version: '0.1.0'}), deps,
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      deps,
     );
 
-    const response = await (tools.compare_model_years.handler as unknown as (
-      input: unknown, context: unknown,
-    ) => Promise<{content: {text: string}[]}>)({model: 'EXPEDITION', years: [2025, 2026]}, {});
+    const response = await (
+      tools.compare_model_years.handler as unknown as (
+        input: unknown,
+        context: unknown,
+      ) => Promise<{content: {text: string}[]}>
+    )({model: 'EXPEDITION', years: [2025, 2026]}, {});
     const result = JSON.parse(response.content[0].text);
 
-    expect(result.changes[0].trimChanges).toMatchObject([{
-      trim: 'Platinum',
-      priceDifferenceMxn: 10_000,
-      sourceUrls: {from: 'https://ford.example/old', to: 'https://ford.example/new'},
-      changedFacts: [{normalizedName: 'potencia'}],
-    }]);
+    expect(result.changes[0].trimChanges).toMatchObject([
+      {
+        trim: 'Platinum',
+        priceDifferenceMxn: 10_000,
+        sourceUrls: {
+          from: 'https://ford.example/old',
+          to: 'https://ford.example/new',
+        },
+        changedFacts: [{normalizedName: 'potencia'}],
+      },
+    ]);
     expect(result.years).toMatchObject([
-      {year: 2025, modelPageUrl: 'https://ford.example/2025', technicalSheetUrl: 'https://ford.example/2025/Ficha-Tecnica/', trimLinks: [
-        {trim: 'Platinum', comparisonUrl: 'https://ford.example/2025/Comparativo/PLATINUM/'},
-        {trim: 'Legacy'},
-      ]},
+      {
+        year: 2025,
+        modelPageUrl: 'https://ford.example/2025',
+        technicalSheetUrl: 'https://ford.example/2025/Ficha-Tecnica/',
+        trimLinks: [
+          {
+            trim: 'Platinum',
+            comparisonUrl: 'https://ford.example/2025/Comparativo/PLATINUM/',
+          },
+          {trim: 'Legacy'},
+        ],
+      },
       {year: 2026, modelPageUnavailable: true},
     ]);
     expect(result.changes[0].unmatchedTrims).toEqual({
-      from: ['Legacy'], to: ['Ultimate'],
+      from: ['Legacy'],
+      to: ['Ultimate'],
     });
   });
 
   it('paginates model-year trim deltas and reduces summary facts', async () => {
     const deps = services();
     vi.mocked(deps.comparisons.compareModelYears).mockResolvedValueOnce({
-      model: 'EXPEDITION', requestedYears: [2025, 2026], missingYears: [],
-      foundYears: [{year: 2025, variants: Array.from({length: 5}, (_, index) => ({
-        trim: `Trim ${index + 1}`, comparisonUrl: `https://ford.example/trim/${index + 1}`,
-      }))}],
-      yearPairs: [{
-        fromYear: 2025, toYear: 2026, changedFacts: [],
-        trimChanges: Array.from({length: 5}, (_, index) => ({
-          trim: `Trim ${index + 1}`,
-          priceDifferenceMxn: 1_000,
-          changedFacts: Array.from({length: 5}, (_, factIndex) => ({
-            normalizedName: `fact_${factIndex + 1}`,
-            name: `Fact ${factIndex + 1}`,
-            older: {value: 'old'}, newer: {value: 'new'},
+      model: 'EXPEDITION',
+      requestedYears: [2025, 2026],
+      missingYears: [],
+      foundYears: [
+        {
+          year: 2025,
+          variants: Array.from({length: 5}, (_, index) => ({
+            trim: `Trim ${index + 1}`,
+            comparisonUrl: `https://ford.example/trim/${index + 1}`,
           })),
-        })),
-      }],
+        },
+      ],
+      yearPairs: [
+        {
+          fromYear: 2025,
+          toYear: 2026,
+          changedFacts: [],
+          trimChanges: Array.from({length: 5}, (_, index) => ({
+            trim: `Trim ${index + 1}`,
+            priceDifferenceMxn: 1_000,
+            changedFacts: Array.from({length: 5}, (_, factIndex) => ({
+              normalizedName: `fact_${factIndex + 1}`,
+              name: `Fact ${factIndex + 1}`,
+              older: {value: 'old'},
+              newer: {value: 'new'},
+            })),
+          })),
+        },
+      ],
     });
     const tools = registerMcpTools(
-      new McpServer({name: 'ford-uruapan', version: '0.1.0'}), deps,
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      deps,
     );
-    const response = await (tools.compare_model_years.handler as unknown as (
-      input: unknown, context: unknown,
-    ) => Promise<{content: {text: string}[]}>)({
-      model: 'EXPEDITION', years: [2025, 2026], trimOffset: 2, trimLimit: 2,
-    }, {});
+    const response = await (
+      tools.compare_model_years.handler as unknown as (
+        input: unknown,
+        context: unknown,
+      ) => Promise<{content: {text: string}[]}>
+    )(
+      {
+        model: 'EXPEDITION',
+        years: [2025, 2026],
+        trimOffset: 2,
+        trimLimit: 2,
+      },
+      {},
+    );
     const result = JSON.parse(response.content[0].text);
 
-    expect(result.changes[0].trimChanges.map((trim: {trim: string}) => trim.trim)).toEqual([
-      'Trim 3', 'Trim 4',
-    ]);
+    expect(
+      result.changes[0].trimChanges.map((trim: {trim: string}) => trim.trim),
+    ).toEqual(['Trim 3', 'Trim 4']);
     expect(result.changes[0].trimPagination).toEqual({
-      offset: 2, limit: 2, total: 5, hasMore: true,
+      offset: 2,
+      limit: 2,
+      total: 5,
+      hasMore: true,
     });
     expect(result.changes[0].trimChanges[0].changedFacts).toHaveLength(3);
     expect(result.changes[0].trimChanges[0].factsOmitted).toBe(2);
     expect(result.years[0].trimLinks).toHaveLength(5);
     expect(result.years[0]).not.toHaveProperty('trims');
-    expect(schemaAccepts(tools.compare_model_years, {
-      model: 'EXPEDITION', years: [2025, 2026], trimOffset: 0, trimLimit: 2,
-    })).toBe(true);
+    expect(
+      schemaAccepts(tools.compare_model_years, {
+        model: 'EXPEDITION',
+        years: [2025, 2026],
+        trimOffset: 0,
+        trimLimit: 2,
+      }),
+    ).toBe(true);
   });
 
   it('keeps distinct year-comparison citations but removes URLs repeated from their parent', async () => {
     const deps = services();
     vi.mocked(deps.comparisons.compareModelYears).mockResolvedValueOnce({
-      model: 'EXPEDITION', requestedYears: [2025, 2026], missingYears: [],
-      foundYears: [{year: 2025, model_page_url: 'https://ford.example/EXPEDITION/25/', variants: [
-        {trim: 'Active', sourceUrl: 'https://ford.example/EXPEDITION/25/', comparisonUrl: 'https://ford.example/EXPEDITION/25/Comparativo/ACTIVE/?exterior=gris%20denim&interior='},
-      ]}],
-      yearPairs: [{fromYear: 2025, toYear: 2026, changedFacts: [], trimChanges: [{
-        trim: 'Active', sourceUrls: {from: 'https://ford.example/2025', to: 'https://ford.example/2026'},
-        changedFacts: [{name: 'Potencia', older: {value: '400 HP', sourceUrl: 'https://ford.example/EXPEDITION/25/Comparativo/ACTIVE/?exterior=gris%20denim&interior='}, newer: {value: '440 HP', sourceUrl: 'https://ford.example/EXPEDITION/26/Comparativo/ACTIVE/?exterior=gris%20denim&interior='}}],
-      }]}],
+      model: 'EXPEDITION',
+      requestedYears: [2025, 2026],
+      missingYears: [],
+      foundYears: [
+        {
+          year: 2025,
+          model_page_url: 'https://ford.example/EXPEDITION/25/',
+          variants: [
+            {
+              trim: 'Active',
+              sourceUrl: 'https://ford.example/EXPEDITION/25/',
+              comparisonUrl:
+                'https://ford.example/EXPEDITION/25/Comparativo/ACTIVE/?exterior=gris%20denim&interior=',
+            },
+          ],
+        },
+      ],
+      yearPairs: [
+        {
+          fromYear: 2025,
+          toYear: 2026,
+          changedFacts: [],
+          trimChanges: [
+            {
+              trim: 'Active',
+              sourceUrls: {
+                from: 'https://ford.example/2025',
+                to: 'https://ford.example/2026',
+              },
+              changedFacts: [
+                {
+                  name: 'Potencia',
+                  older: {
+                    value: '400 HP',
+                    sourceUrl:
+                      'https://ford.example/EXPEDITION/25/Comparativo/ACTIVE/?exterior=gris%20denim&interior=',
+                  },
+                  newer: {
+                    value: '440 HP',
+                    sourceUrl:
+                      'https://ford.example/EXPEDITION/26/Comparativo/ACTIVE/?exterior=gris%20denim&interior=',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
     });
     const tools = registerMcpTools(
-      new McpServer({name: 'ford-uruapan', version: '0.1.0'}), deps,
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      deps,
     );
-    const response = await (tools.compare_model_years.handler as unknown as (
-      input: unknown, context: unknown,
-    ) => Promise<{content: {text: string}[]}>)({model: 'EXPEDITION', years: [2025, 2026]}, {});
+    const response = await (
+      tools.compare_model_years.handler as unknown as (
+        input: unknown,
+        context: unknown,
+      ) => Promise<{content: {text: string}[]}>
+    )({model: 'EXPEDITION', years: [2025, 2026]}, {});
     const result = JSON.parse(response.content[0].text);
 
-    expect(result.years[0].trimLinks).toEqual([{
-      trim: 'Active', comparisonUrl: 'https://ford.example/EXPEDITION/25/Comparativo/ACTIVE/',
-    }]);
+    expect(result.years[0].trimLinks).toEqual([
+      {
+        trim: 'Active',
+        comparisonUrl: 'https://ford.example/EXPEDITION/25/Comparativo/ACTIVE/',
+      },
+    ]);
     expect(result.changes[0].trimChanges[0].sourceUrls).toEqual({
-      from: 'https://ford.example/2025', to: 'https://ford.example/2026',
+      from: 'https://ford.example/2025',
+      to: 'https://ford.example/2026',
     });
-    expect(result.changes[0].trimChanges[0].changedFacts[0].older.sourceUrl)
-      .toBe('https://ford.example/EXPEDITION/25/Comparativo/ACTIVE/');
-    expect(result.changes[0].trimChanges[0].changedFacts[0].newer.sourceUrl)
-      .toBe('https://ford.example/EXPEDITION/26/Comparativo/ACTIVE/');
+    expect(
+      result.changes[0].trimChanges[0].changedFacts[0].older.sourceUrl,
+    ).toBe('https://ford.example/EXPEDITION/25/Comparativo/ACTIVE/');
+    expect(
+      result.changes[0].trimChanges[0].changedFacts[0].newer.sourceUrl,
+    ).toBe('https://ford.example/EXPEDITION/26/Comparativo/ACTIVE/');
   });
 
   it('deduplicates identical trim price and comparison source URLs in responses', async () => {
     const deps = services();
     const page = 'https://ford.example/EXPEDITION/27/Comparativo/ACTIVE/';
     vi.mocked(deps.comparisons.compareTrims).mockResolvedValueOnce({
-      model: 'EXPEDITION', year: 2027,
+      model: 'EXPEDITION',
+      year: 2027,
       foundTrims: [
-        {trim: 'Active', price: 100, currency: 'MXN', price_source_url: page, comparison_url: page},
-        {trim: 'King Ranch Max', price: 200, currency: 'MXN', price_source_url: 'https://ford.example/prices', comparison_url: 'https://ford.example/king-ranch'},
+        {
+          trim: 'Active',
+          price: 100,
+          currency: 'MXN',
+          price_source_url: page,
+          comparison_url: page,
+        },
+        {
+          trim: 'King Ranch Max',
+          price: 200,
+          currency: 'MXN',
+          price_source_url: 'https://ford.example/prices',
+          comparison_url: 'https://ford.example/king-ranch',
+        },
       ],
-      trimPairs: [{leftTrim: 'Active', rightTrim: 'King Ranch Max', priceSources: {left: page, right: 'https://ford.example/prices'}, sharedFactDifferences: []}],
+      trimPairs: [
+        {
+          leftTrim: 'Active',
+          rightTrim: 'King Ranch Max',
+          priceSources: {left: page, right: 'https://ford.example/prices'},
+          sharedFactDifferences: [],
+        },
+      ],
     });
     const tools = registerMcpTools(
-      new McpServer({name: 'ford-uruapan', version: '0.1.0'}), deps,
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      deps,
     );
 
-    const response = await (tools.compare_trims.handler as unknown as (
-      input: unknown, context: unknown,
-    ) => Promise<{content: {text: string}[]}>)({
-      model: 'EXPEDITION', year: 2027, trims: ['Active', 'King Ranch Max'],
-    }, {});
+    const response = await (
+      tools.compare_trims.handler as unknown as (
+        input: unknown,
+        context: unknown,
+      ) => Promise<{content: {text: string}[]}>
+    )(
+      {
+        model: 'EXPEDITION',
+        year: 2027,
+        trims: ['Active', 'King Ranch Max'],
+      },
+      {},
+    );
     const result = JSON.parse(response.content[0].text);
 
     expect(result.trims[0]).toEqual({
-      trim: 'Active', price: 100, currency: 'MXN', comparisonUrl: page,
+      trim: 'Active',
+      price: 100,
+      currency: 'MXN',
+      comparisonUrl: page,
     });
     expect(result.trims[1].priceSourceUrl).toBe('https://ford.example/prices');
     expect(result.comparisons[0]).not.toHaveProperty('priceSources');
@@ -1236,35 +1509,68 @@ describe('MCP server', () => {
   it('labels empty trim and competitor comparisons as missing source data', async () => {
     const deps = services();
     vi.mocked(deps.comparisons.compareTrims).mockResolvedValueOnce({
-      model: 'LOBO RAPTOR', year: 2026, modelPageUrl: 'https://ford.example/LOBO-RAPTOR/26/',
-      foundTrims: [{trim: 'High', specifications: []}, {trim: 'R', specifications: []}],
-      trimPairs: [{leftTrim: 'High', rightTrim: 'R', priceDifferenceMxn: null, sharedFactDifferences: []}],
+      model: 'LOBO RAPTOR',
+      year: 2026,
+      modelPageUrl: 'https://ford.example/LOBO-RAPTOR/26/',
+      foundTrims: [
+        {trim: 'High', specifications: []},
+        {trim: 'R', specifications: []},
+      ],
+      trimPairs: [
+        {
+          leftTrim: 'High',
+          rightTrim: 'R',
+          priceDifferenceMxn: null,
+          sharedFactDifferences: [],
+        },
+      ],
       note: 'Only source-backed variant facts are included; absent values are unknown.',
     });
     vi.mocked(deps.comparisons.getVariantComparisons).mockResolvedValueOnce({
-      model: 'LOBO RAPTOR', year: 2026, modelPageUrl: 'https://ford.example/LOBO-RAPTOR/26/', comparisons: [], count: 0,
+      model: 'LOBO RAPTOR',
+      year: 2026,
+      modelPageUrl: 'https://ford.example/LOBO-RAPTOR/26/',
+      comparisons: [],
+      count: 0,
       note: 'No Ford Uruapan Comparativo records were found for this model/year. This does not mean competitors or differences do not exist.',
     });
     const tools = registerMcpTools(
-      new McpServer({name: 'ford-uruapan', version: '0.1.0'}), deps,
+      new McpServer({name: 'ford-uruapan', version: '0.1.0'}),
+      deps,
     );
     const invoke = (tool: {handler: unknown}, input: unknown) =>
-      (tool.handler as (input: unknown, context: unknown) => Promise<{content: {text: string}[]}>) (input, {});
+      (
+        tool.handler as (
+          input: unknown,
+          context: unknown,
+        ) => Promise<{content: {text: string}[]}>
+      )(input, {});
 
     const trimResponse = await invoke(tools.compare_trims, {
-      model: 'LOBO RAPTOR', year: 2026, trims: ['High', 'R'],
+      model: 'LOBO RAPTOR',
+      year: 2026,
+      trims: ['High', 'R'],
     });
     const trimResult = JSON.parse(trimResponse.content[0].text);
     const rivalResponse = await invoke(tools.get_variant_comparisons, {
-      model: 'LOBO RAPTOR', year: 2026,
+      model: 'LOBO RAPTOR',
+      year: 2026,
     });
     const rivalResult = JSON.parse(rivalResponse.content[0].text);
 
     expect(trimResult.note).toContain('absent values are unknown');
-    expect(trimResult.modelPageUrl).toBe('https://ford.example/LOBO-RAPTOR/26/');
-    expect(trimResult.comparisons[0].status).toBe('no_source_backed_differences');
-    expect(rivalResult.note).toContain('does not mean competitors or differences do not exist');
-    expect(rivalResult.modelPageUrl).toBe('https://ford.example/LOBO-RAPTOR/26/');
+    expect(trimResult.modelPageUrl).toBe(
+      'https://ford.example/LOBO-RAPTOR/26/',
+    );
+    expect(trimResult.comparisons[0].status).toBe(
+      'no_source_backed_differences',
+    );
+    expect(rivalResult.note).toContain(
+      'does not mean competitors or differences do not exist',
+    );
+    expect(rivalResult.modelPageUrl).toBe(
+      'https://ford.example/LOBO-RAPTOR/26/',
+    );
   });
 
   it('returns all vehicle details including Ranger engine horsepower', async () => {
