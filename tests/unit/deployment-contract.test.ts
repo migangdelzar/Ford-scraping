@@ -23,13 +23,28 @@ describe('CI workflow contract', () => {
   it('provides an isolated PostgreSQL test database', () => {
     const workflow = readFileSync(workflowPath, 'utf8');
 
-    expect(workflow).toMatch(/postgres:\s*\n[\s\S]*image:\s*postgres:16/);
+    expect(workflow).toMatch(
+      /postgres:\s*\n[\s\S]*image:\s*pgvector\/pgvector:pg16/,
+    );
     expect(workflow).toContain('POSTGRES_DB: ford_test');
     expect(workflow).toContain('POSTGRES_USER: postgres');
     expect(workflow).toContain('POSTGRES_PASSWORD: postgres');
     expect(workflow).toContain(
       'FORD_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/ford_test',
     );
+    expect(workflow).toMatch(/Run database migrations[\s\S]*npm run migrate/);
+    expect(workflow).toMatch(
+      /name: Run integration tests[\s\S]*npm run test:integration/,
+    );
+  });
+
+  it('reports existing lint debt without blocking executable quality gates', () => {
+    const workflow = readFileSync(workflowPath, 'utf8');
+
+    expect(workflow).toMatch(/name: Lint \(baseline debt\)[\s\S]*npm run lint/);
+    expect(workflow).toMatch(/name: Build[\s\S]*npm run build/);
+    expect(workflow).toMatch(/name: Unit tests[\s\S]*npm run test:unit/);
+    expect(workflow).toMatch(/name: Run integration tests[\s\S]*npm run test:integration/);
   });
 
   it('does not publish or deploy', () => {
