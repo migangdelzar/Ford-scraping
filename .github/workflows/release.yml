@@ -1,7 +1,9 @@
 name: Release MCP to OCI
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -26,7 +28,7 @@ concurrency:
 jobs:
   contract:
     name: Verify release contract without publishing
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Confirm release jobs enforce their own operation gates
@@ -34,38 +36,70 @@ jobs:
 
   verify:
     name: Verify release source
-    if: inputs.operation != 'validate'
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && inputs.operation != 'validate')
     runs-on: ubuntu-latest
+    outputs:
+      operation: ${{ steps.source.outputs.operation }}
+      source_sha: ${{ steps.source.outputs.source_sha }}
     permissions:
       actions: read
       contents: read
     steps:
-      - name: Validate source SHA
-        if: inputs.operation == 'deploy'
+      - name: Resolve the verified release source
+        id: source
         env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
-        run: |
-          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "Deploy requires a full 40-character lowercase source SHA." >&2
-            exit 1
-          }
-      - name: Require successful main CI for deploy
-        if: inputs.operation == 'deploy'
-        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_EVENT: ${{ github.event.workflow_run.event }}
+          WORKFLOW_RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW_RUN_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          REQUESTED_OPERATION: ${{ inputs.operation }}
+          REQUESTED_SHA: ${{ inputs.source_sha }}
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
-          runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&head_sha=${SOURCE_SHA}")"
-          jq -e --arg sha "$SOURCE_SHA" \
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            [[ "${WORKFLOW_RUN_CONCLUSION}" == "success" && "${WORKFLOW_RUN_EVENT}" == "push" && \
+              "${WORKFLOW_RUN_BRANCH}" == "main" && "${WORKFLOW_RUN_REPOSITORY,,}" == "${GITHUB_REPOSITORY,,}" ]] || {
+              echo "Automatic release requires a successful push CI run from this repository's main branch." >&2
+              exit 1
+            }
+            operation=deploy
+            source_sha="${WORKFLOW_RUN_SHA}"
+          else
+            operation="${REQUESTED_OPERATION}"
+            source_sha="${REQUESTED_SHA}"
+            if [[ "${operation}" == "rollback" ]]; then
+              source_sha=recorded-rollback
+            fi
+          fi
+          if [[ "${operation}" == "deploy" ]]; then
+            [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "Deploy requires a full 40-character lowercase source SHA." >&2
+              exit 1
+            }
+            runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&head_sha=${source_sha}")"
+            jq -e --arg sha "${source_sha}" \
             '.workflow_runs | any(.head_sha == $sha and .head_branch == "main" and .conclusion == "success")' \
             <<<"$runs" >/dev/null || {
-            echo "Source SHA has no successful push verification run on main." >&2
+              echo "Source SHA has no successful push verification run on main." >&2
+              exit 1
+            }
+          elif [[ "${operation}" != "rollback" ]]; then
+            echo "Unsupported release operation: ${operation}" >&2
             exit 1
-          }
+          fi
+          echo "operation=${operation}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${source_sha}" >> "$GITHUB_OUTPUT"
 
   image:
     name: Build and scan immutable MCP image
-    if: inputs.operation == 'deploy'
+    if: needs.verify.result == 'success' && needs.verify.outputs.operation == 'deploy'
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -82,7 +116,7 @@ jobs:
       - name: Check out verified source
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.source_sha }}
+          ref: ${{ needs.verify.outputs.source_sha }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Set up ARM64 emulation
@@ -91,7 +125,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/.buildx-cache
-          key: scraping-arm64-${{ inputs.source_sha }}
+          key: scraping-arm64-${{ needs.verify.outputs.source_sha }}
           restore-keys: scraping-arm64-
       - name: Normalize GHCR image name
         id: image-name
@@ -110,7 +144,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          tags: ${{ steps.image-name.outputs.name }}:sha-${{ inputs.source_sha }}
+          tags: ${{ steps.image-name.outputs.name }}:sha-${{ needs.verify.outputs.source_sha }}
           platforms: linux/arm64
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
@@ -154,7 +188,7 @@ jobs:
           image: ${{ steps.image.outputs.image }}
           format: cyclonedx-json
           output-file: ford-scraping-sbom.cdx.json
-          artifact-name: ford-scraping-sbom-${{ inputs.source_sha }}.cdx.json
+          artifact-name: ford-scraping-sbom-${{ needs.verify.outputs.source_sha }}.cdx.json
       - name: Attest image provenance
         uses: actions/attest-build-provenance@v2
         with:
@@ -164,7 +198,7 @@ jobs:
       - name: Summarize immutable scraper release
         env:
           IMAGE: ${{ steps.image.outputs.image }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
         run: |
           {
             echo '### Ford-scraping container'
@@ -179,7 +213,7 @@ jobs:
     needs: [contract, verify, image]
     if: >-
       always() && needs.contract.result == 'success' && needs.verify.result == 'success' &&
-      (inputs.operation == 'rollback' || needs.image.result == 'success') &&
+      (needs.verify.outputs.operation == 'rollback' || needs.image.result == 'success') &&
       vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
       vars.RUNTIME_VAULT_READY == 'true'
     runs-on: ubuntu-latest
@@ -192,9 +226,9 @@ jobs:
         uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@f8112024deea512ffebe8a7b49df531a29dad027
         with:
           target: ford-mcp
-          operation: ${{ inputs.operation }}
-          image: ${{ inputs.operation == 'rollback' && '' || needs.image.outputs.image }}
-          source-sha: ${{ inputs.operation == 'rollback' && 'recorded-rollback' || inputs.source_sha }}
+          operation: ${{ needs.verify.outputs.operation }}
+          image: ${{ needs.verify.outputs.operation == 'rollback' && '' || needs.image.outputs.image }}
+          source-sha: ${{ needs.verify.outputs.source_sha }}
           host: ${{ vars.OCI_MCP_HOST }}
           user: ${{ vars.OCI_DEPLOY_USER }}
           ssh-private-key: ${{ secrets.OCI_MCP_SSH_PRIVATE_KEY }}

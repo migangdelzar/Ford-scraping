@@ -107,8 +107,13 @@ describe('MCP release workflow contract', () => {
   it('builds and scans an immutable ARM64 image only after main CI succeeds', () => {
     const workflow = readFileSync(releaseWorkflowPath, 'utf8');
 
+    expect(workflow).toContain('workflows: [CI]');
+    expect(workflow).toContain("github.event.workflow_run.event == 'push'");
+    expect(workflow).toContain(
+      'WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}',
+    );
     expect(workflow).toContain('actions/workflows/ci.yml/runs?');
-    expect(workflow).toContain('head_sha=${SOURCE_SHA}');
+    expect(workflow).toContain('head_sha=${source_sha}');
     expect(workflow).toContain('platforms: linux/arm64');
     expect(workflow).toContain(
       'IMAGE_DIGEST: ${{ steps.build.outputs.digest }}',
