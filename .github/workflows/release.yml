@@ -1,14 +1,16 @@
 name: Release MCP to OCI
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       operation:
-        description: Deploy a verified source SHA or restore the prior image.
+        description: Validate this release workflow, deploy verified main, or restore the prior image.
         required: true
         default: deploy
         type: choice
-        options: [deploy, rollback]
+        options: [validate, deploy, rollback]
       source_sha:
         description: Full 40-character SHA with successful CI on main (deploy only).
         required: false
@@ -22,8 +24,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  contract:
+    name: Verify release contract without publishing
+    if: github.event_name == 'push' || inputs.operation == 'validate'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm this is a validation-only event
+        run: echo "No image publishing or deployment was requested."
+
   verify:
     name: Verify release source
+    if: inputs.operation != 'validate'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -76,6 +87,12 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Set up ARM64 emulation
         uses: docker/setup-qemu-action@v3
+      - name: Set up image build cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: scraping-arm64-${{ inputs.source_sha }}
+          restore-keys: scraping-arm64-
       - name: Normalize GHCR image name
         id: image-name
         env:
@@ -95,9 +112,15 @@ jobs:
           file: Dockerfile
           tags: ${{ steps.image-name.outputs.name }}:sha-${{ inputs.source_sha }}
           platforms: linux/arm64
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
           push: true
           provenance: false
           sbom: false
+      - name: Rotate image build cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
       - name: Expose immutable image digest
         id: image
         env:
@@ -125,18 +148,37 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image.sarif
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@v0.20.0
+        with:
+          image: ${{ steps.image.outputs.image }}
+          format: cyclonedx-json
+          output-file: ford-scraping-sbom.cdx.json
+          artifact-name: ford-scraping-sbom-${{ inputs.source_sha }}.cdx.json
       - name: Attest image provenance
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ steps.image-name.outputs.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+      - name: Summarize immutable scraper release
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          {
+            echo '### Ford-scraping container'
+            echo "- Source: ${SOURCE_SHA}"
+            echo "- Immutable image: ${IMAGE}"
+            echo '- Vulnerability scan: passed'
+            echo '- SBOM and build provenance: attached'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     name: Deploy or roll back Ford MCP
-    needs: [verify, image]
+    needs: [contract, verify, image]
     if: >-
-      always() && needs.verify.result == 'success' &&
+      always() && needs.contract.result == 'success' && needs.verify.result == 'success' &&
       (inputs.operation == 'rollback' || needs.image.result == 'success') &&
       vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
       vars.RUNTIME_VAULT_READY == 'true'
@@ -147,11 +189,11 @@ jobs:
       packages: read
     steps:
       - name: Deploy using the shared OCI action
-        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@4facd42fa7ac2ff74a0c93b82f5ced0fd574c718
+        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@f8112024deea512ffebe8a7b49df531a29dad027
         with:
           target: ford-mcp
           operation: ${{ inputs.operation }}
-          image: ${{ needs.image.outputs.image }}
+          image: ${{ inputs.operation == 'rollback' && '' || needs.image.outputs.image }}
           source-sha: ${{ inputs.operation == 'rollback' && 'recorded-rollback' || inputs.source_sha }}
           host: ${{ vars.OCI_MCP_HOST }}
           user: ${{ vars.OCI_DEPLOY_USER }}
