@@ -35,9 +35,7 @@ export class DocumentRepository implements EmbeddingJobRepository {
         const chunkIndex = document.chunkIndex ?? 0;
         const documentKey = `${ref.modelYearId}:${document.documentType}:${sectionKey}:${chunkIndex}${document.variantId ? `:${document.variantId}` : ''}`;
         const contentHash = hashDocument(document.content);
-        const semanticContent = document.semanticContent === undefined
-          ? document.content
-          : document.semanticContent.trim();
+        const semanticContent = document.semanticContent?.trim() ?? '';
         const semanticContentHash = hashDocument(semanticContent);
         const existing = await client.query<{
           id: string;
@@ -68,7 +66,7 @@ export class DocumentRepository implements EmbeddingJobRepository {
               document.title,
               document.content,
               contentHash,
-              document.semanticContent ?? null,
+              semanticContent,
               semanticContentHash,
               JSON.stringify(document.metadata),
             ],
@@ -77,7 +75,8 @@ export class DocumentRepository implements EmbeddingJobRepository {
         } else {
           documentId = existing.rows[0].id;
           const contentChanged = existing.rows[0].content_hash !== contentHash;
-          embeddingChanged = existing.rows[0].semantic_content_hash !== semanticContentHash;
+          embeddingChanged =
+            existing.rows[0].semantic_content_hash !== semanticContentHash;
           if (contentChanged || embeddingChanged || document.variantId) {
             await client.query(
               `UPDATE ford.documents
@@ -96,7 +95,7 @@ export class DocumentRepository implements EmbeddingJobRepository {
                 chunkIndex,
                 JSON.stringify(document.metadata),
                 document.variantId ?? null,
-                document.semanticContent ?? null,
+                semanticContent,
                 semanticContentHash,
               ],
             );
@@ -134,9 +133,7 @@ export class DocumentRepository implements EmbeddingJobRepository {
     const chunkIndex = document.chunkIndex ?? 0;
     const documentKey = `page:${pageId}:${document.documentType}:${sectionKey}:${chunkIndex}`;
     const contentHash = hashDocument(document.content);
-    const semanticContent = document.semanticContent === undefined
-      ? document.content
-      : document.semanticContent.trim();
+    const semanticContent = document.semanticContent?.trim() ?? '';
     const semanticContentHash = hashDocument(semanticContent);
     const client = await this.pool.connect();
     try {
@@ -166,7 +163,7 @@ export class DocumentRepository implements EmbeddingJobRepository {
             document.title,
             document.content,
             contentHash,
-            document.semanticContent ?? null,
+            semanticContent,
             semanticContentHash,
             JSON.stringify(document.metadata),
           ],
@@ -175,7 +172,8 @@ export class DocumentRepository implements EmbeddingJobRepository {
       } else {
         documentId = existing.rows[0].id;
         const contentChanged = existing.rows[0].content_hash !== contentHash;
-        embeddingChanged = existing.rows[0].semantic_content_hash !== semanticContentHash;
+        embeddingChanged =
+          existing.rows[0].semantic_content_hash !== semanticContentHash;
         if (contentChanged || embeddingChanged) {
           await client.query(
             `UPDATE ford.documents SET title = $2, content = $3, content_hash = $4,
@@ -189,7 +187,7 @@ export class DocumentRepository implements EmbeddingJobRepository {
               sectionKey,
               chunkIndex,
               JSON.stringify(document.metadata),
-              document.semanticContent ?? null,
+              semanticContent,
               semanticContentHash,
             ],
           );
@@ -226,9 +224,7 @@ export class DocumentRepository implements EmbeddingJobRepository {
     const chunkIndex = document.chunkIndex ?? 0;
     const documentKey = `offer:${ref.offerId}:${sectionKey}:${chunkIndex}`;
     const contentHash = hashDocument(document.content);
-    const semanticContent = document.semanticContent === undefined
-      ? document.content
-      : document.semanticContent.trim();
+    const semanticContent = document.semanticContent?.trim() ?? '';
     const semanticContentHash = hashDocument(semanticContent);
     const client = await this.pool.connect();
     try {
@@ -264,7 +260,7 @@ export class DocumentRepository implements EmbeddingJobRepository {
             document.title,
             document.content,
             contentHash,
-            document.semanticContent ?? null,
+            semanticContent,
             semanticContentHash,
             JSON.stringify(document.metadata),
           ],
@@ -273,7 +269,8 @@ export class DocumentRepository implements EmbeddingJobRepository {
       } else {
         documentId = existing.rows[0].id;
         const contentChanged = existing.rows[0].content_hash !== contentHash;
-        embeddingChanged = existing.rows[0].semantic_content_hash !== semanticContentHash;
+        embeddingChanged =
+          existing.rows[0].semantic_content_hash !== semanticContentHash;
         if (contentChanged || embeddingChanged) {
           await client.query(
             `UPDATE ford.documents
@@ -290,7 +287,7 @@ export class DocumentRepository implements EmbeddingJobRepository {
               sectionKey,
               chunkIndex,
               JSON.stringify(document.metadata),
-              document.semanticContent ?? null,
+              semanticContent,
               semanticContentHash,
             ],
           );

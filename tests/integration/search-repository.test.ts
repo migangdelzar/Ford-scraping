@@ -86,6 +86,7 @@ describe('hybrid search repository', () => {
             documentType: 'technology',
             title: `${item.name} tecnología`,
             content: item.content,
+            semanticContent: item.content,
             metadata: {},
           },
         ],
@@ -169,9 +170,9 @@ describe('hybrid search repository', () => {
       filters: {modelYear: 2026},
     });
 
-    expect(response.results.flatMap(result => result.matchedSections)).not.toContain(
-      'offer',
-    );
+    expect(
+      response.results.flatMap(result => result.matchedSections),
+    ).not.toContain('offer');
     expect(
       response.results.flatMap(result => result.evidence.map(hit => hit.title)),
     ).not.toContain('Territory — Territory monthly financing plan');

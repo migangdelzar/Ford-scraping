@@ -3,23 +3,31 @@ import {resolve} from 'node:path';
 import {describe, expect, it} from 'vitest';
 
 const workflowPath = resolve(process.cwd(), '.github/workflows/ci.yml');
+const dockerfilePath = resolve(process.cwd(), 'Dockerfile');
 const composePath = resolve(process.cwd(), 'docker-compose.yml');
 const configPath = resolve(process.cwd(), 'src/config.ts');
 
 describe('CI workflow contract', () => {
-  it('runs the quality gates on pull requests and pushes to main', () => {
+  it('runs quality gates on every branch push, pull request, and manual dispatch', () => {
     const workflow = readFileSync(workflowPath, 'utf8');
 
     expect(workflow).toMatch(/on:\s*[\s\S]*pull_request:/);
-    expect(workflow).toMatch(
-      /on:\s*[\s\S]*push:\s*[\s\S]*branches:\s*\n\s*- main/,
-    );
+    expect(workflow).toMatch(/on:\s*[\s\S]*push:\s*\n/);
+    expect(workflow).toMatch(/on:\s*[\s\S]*workflow_dispatch:/);
+    expect(workflow).toMatch(/permissions:\s*\n\s+contents: read/);
+    expect(workflow).toMatch(/concurrency:/);
     expect(workflow).toMatch(/node-version:\s*['"]?22['"]?/);
     expect(workflow).toContain('npm ci');
     expect(workflow).toContain('npm run lint');
     expect(workflow).toContain('npm run build');
     expect(workflow).toContain('npm run test:unit');
     expect(workflow).toContain('npm run test:integration');
+  });
+
+  it('runs the MCP container as the unprivileged Node user', () => {
+    const dockerfile = readFileSync(dockerfilePath, 'utf8');
+
+    expect(dockerfile).toMatch(/^USER node$/m);
   });
 
   it('provides an isolated PostgreSQL test database', () => {

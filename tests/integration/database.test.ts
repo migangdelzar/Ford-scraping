@@ -75,6 +75,34 @@ describe('PostgreSQL repositories', () => {
     expect(result.rows[0].count).toBe(1);
   });
 
+  it('does not queue embeddings when a document has no curated semantic content', async () => {
+    const storedPage = (await pages.upsert(samplePage)).page;
+    const ref = await catalog.upsertCatalog(sampleCandidate, storedPage);
+    await documents.upsertDocuments(
+      ref,
+      [
+        {
+          documentType: 'technology',
+          title: 'Territory tecnología',
+          content: 'Contenido no curado.',
+          metadata: {},
+        },
+      ],
+      storedPage.id,
+    );
+
+    const result = await pool.query<{
+      semantic_content: string;
+      status: string | null;
+    }>(
+      `SELECT d.semantic_content, e.status
+       FROM ford.documents d
+       LEFT JOIN ford.document_embeddings e ON e.document_id = d.id
+       WHERE d.document_type = 'technology'`,
+    );
+    expect(result.rows).toEqual([{semantic_content: '', status: null}]);
+  });
+
   it('reuses a logical document key and resets its embedding to pending when content changes', async () => {
     const storedPage = (await pages.upsert(samplePage)).page;
     const ref = await catalog.upsertCatalog(sampleCandidate, storedPage);
@@ -85,6 +113,7 @@ describe('PostgreSQL repositories', () => {
           documentType: 'technology',
           title: 'Territory tecnología',
           content: 'Pantalla y conectividad.',
+          semanticContent: 'Pantalla y conectividad.',
           metadata: {},
         },
       ],
@@ -97,6 +126,7 @@ describe('PostgreSQL repositories', () => {
           documentType: 'technology',
           title: 'Territory tecnología',
           content: 'Pantalla, conectividad y seguridad.',
+          semanticContent: 'Pantalla, conectividad y seguridad.',
           metadata: {},
         },
       ],
@@ -159,6 +189,7 @@ describe('PostgreSQL repositories', () => {
           chunkIndex: 0,
           title: 'Territory infotainment',
           content: 'Pantalla central.',
+          semanticContent: 'Pantalla central.',
           metadata: {},
         },
         {
@@ -167,6 +198,7 @@ describe('PostgreSQL repositories', () => {
           chunkIndex: 1,
           title: 'Territory infotainment continuación',
           content: 'Conectividad inalámbrica.',
+          semanticContent: 'Conectividad inalámbrica.',
           metadata: {},
         },
         {
@@ -175,6 +207,7 @@ describe('PostgreSQL repositories', () => {
           chunkIndex: 0,
           title: 'Territory connectivity',
           content: 'Apple CarPlay y Android Auto.',
+          semanticContent: 'Apple CarPlay y Android Auto.',
           metadata: {},
         },
       ],
