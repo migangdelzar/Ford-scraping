@@ -115,8 +115,15 @@ describe('MCP release workflow contract', () => {
     expect(workflow).toContain('actions/workflows/ci.yml/runs?');
     expect(workflow).toContain('head_sha=${source_sha}');
     expect(workflow).toContain('platforms: linux/arm64');
+    expect(workflow).toContain('input: /tmp/ford-scraping.tar');
     expect(workflow).toContain(
-      'IMAGE_DIGEST: ${{ steps.build.outputs.digest }}',
+      'outputs: type=docker,dest=/tmp/ford-scraping.tar',
+    );
+    expect(workflow).toContain(
+      'IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}',
+    );
+    expect(workflow.indexOf('name: Scan image')).toBeLessThan(
+      workflow.indexOf('name: Log in to GHCR'),
     );
     expect(workflow).toContain('image=${IMAGE_REPOSITORY}@${IMAGE_DIGEST}');
     expect(workflow).toContain('limit-severities-for-sarif: true');
