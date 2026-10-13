@@ -5,7 +5,11 @@ import {createApplication} from './composition-root.js';
 import {buildApiApp} from './api/app.js';
 import {serveMcpStdio} from './mcp/server.js';
 import {startMcpHttpServer} from './mcp/http.js';
-import {crawlCatalog, crawlTargets, PlaywrightPageFetcher} from './crawl/crawler.js';
+import {
+  crawlCatalog,
+  crawlTargets,
+  PlaywrightPageFetcher,
+} from './crawl/crawler.js';
 import {ingestPages} from './crawl/ingestion.js';
 import {buildOfferDocument} from './domain/offers.js';
 import {EmbeddingWorker} from './embeddings/worker.js';
@@ -116,8 +120,18 @@ async function main(): Promise<void> {
         pages: application.pages,
         maxPages: option('max-pages', config.crawl.maxPages),
       });
-      const {changedPages: _changedPages, ...report} = summary;
-      console.error(JSON.stringify({...report, targetRoutes: links.rowCount}, null, 2));
+      const {changedPages, ...report} = summary;
+      console.error(
+        JSON.stringify(
+          {
+            ...report,
+            changedPageCount: changedPages.length,
+            targetRoutes: links.rowCount,
+          },
+          null,
+          2,
+        ),
+      );
     } finally {
       await fetcher.close();
       await application.close();

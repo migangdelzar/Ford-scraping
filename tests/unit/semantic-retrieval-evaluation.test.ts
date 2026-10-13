@@ -37,6 +37,10 @@ describe('semantic retrieval evaluation metrics', () => {
         ['Ford BRONCO 2026. Precio desde: $998,500 MXN.'],
         ['Bronco 2026', '$998,500 MXN', 'motor 2.3L'],
       ),
-    ).toEqual({matched: ['Bronco 2026', '$998,500 MXN'], missing: ['motor 2.3L'], coverage: 2 / 3});
+    ).toEqual({
+      matched: ['Bronco 2026', '$998,500 MXN'],
+      missing: ['motor 2.3L'],
+      coverage: 2 / 3,
+    });
   });
 });

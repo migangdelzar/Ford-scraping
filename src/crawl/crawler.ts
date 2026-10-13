@@ -66,7 +66,10 @@ export async function crawlTargets(
 
   while (queue.length && visited.size < options.maxPages) {
     const url = queue.shift()!;
-    if (visited.has(url) || !isCrawlablePublicPage(new URL(url), options.policy))
+    if (
+      visited.has(url) ||
+      !isCrawlablePublicPage(new URL(url), options.policy)
+    )
       continue;
     visited.add(url);
     try {

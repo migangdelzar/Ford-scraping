@@ -27,7 +27,11 @@ function services(): McpServices {
       }),
     },
     catalog: {status: vi.fn()},
-    comparisons: {compareTrims: vi.fn(), compareModelYears: vi.fn(), getVariantComparisons: vi.fn()},
+    comparisons: {
+      compareTrims: vi.fn(),
+      compareModelYears: vi.fn(),
+      getVariantComparisons: vi.fn(),
+    },
   };
 }
 

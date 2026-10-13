@@ -2,7 +2,10 @@ import type {Pool} from 'pg';
 import {createHash} from 'node:crypto';
 import type {PageType, StoredPage} from '../domain/contracts.js';
 import {extractPageLinks} from '../crawl/page-links.js';
-import {normalizeUrl, stripComparisonSelectorParamsFromText} from '../crawl/url-policy.js';
+import {
+  normalizeUrl,
+  stripComparisonSelectorParamsFromText,
+} from '../crawl/url-policy.js';
 
 export interface FetchedPage {
   sourceBaseUrl: string;
@@ -96,9 +99,10 @@ export class PageRepository {
         ],
       );
       const pageId = result.rows[0].id;
-      await client.query('DELETE FROM ford.page_links WHERE source_page_id = $1', [
-        pageId,
-      ]);
+      await client.query(
+        'DELETE FROM ford.page_links WHERE source_page_id = $1',
+        [pageId],
+      );
       for (const link of extractPageLinks(input.rawHtml, input.url)) {
         await client.query(
           `INSERT INTO ford.page_links

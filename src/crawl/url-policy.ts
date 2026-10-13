@@ -18,7 +18,8 @@ const REJECTED_PATH_PARTS = [
   'agendar',
 ];
 
-const NON_PAGE_EXTENSIONS = /\.(?:avif|css|gif|ico|jpe?g|js|pdf|png|svg|webp|woff2?|ttf|eot|mp4|webm)$/i;
+const NON_PAGE_EXTENSIONS =
+  /\.(?:avif|css|gif|ico|jpe?g|js|pdf|png|svg|webp|woff2?|ttf|eot|mp4|webm)$/i;
 
 export interface CrawlPolicy {
   baseUrl: URL;
@@ -64,7 +65,10 @@ export function isAllowedPublicUrl(url: URL, policy: CrawlPolicy): boolean {
 }
 
 export function isCrawlablePublicPage(url: URL, policy: CrawlPolicy): boolean {
-  if (!isAllowedPublicUrl(url, policy) || NON_PAGE_EXTENSIONS.test(url.pathname))
+  if (
+    !isAllowedPublicUrl(url, policy) ||
+    NON_PAGE_EXTENSIONS.test(url.pathname)
+  )
     return false;
   // Comparativo uses color selectors in its query string; allow only those
   // parameters there so arbitrary search/filter combinations stay excluded.

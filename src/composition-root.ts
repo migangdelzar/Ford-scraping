@@ -100,7 +100,8 @@ export function createApplication(config: AppConfig) {
         }),
     },
     pages,
-    ingestPage: page => ingestPage(page, catalog, documents, offers, comparisonsRepo),
+    ingestPage: page =>
+      ingestPage(page, catalog, documents, offers, comparisonsRepo),
     usedVehicles,
     usedInventory,
     financing: financingSync,

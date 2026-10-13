@@ -202,7 +202,8 @@ export class SearchRepository {
         row.annual_interest_rate === null
           ? undefined
           : Number(row.annual_interest_rate),
-      catPercent: row.cat_percent === null ? undefined : Number(row.cat_percent),
+      catPercent:
+        row.cat_percent === null ? undefined : Number(row.cat_percent),
       taxRatePercent:
         row.tax_rate_percent === null || row.tax_rate_percent === undefined
           ? undefined

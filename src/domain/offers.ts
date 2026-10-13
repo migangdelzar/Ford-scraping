@@ -202,7 +202,9 @@ export function buildOfferDocument(offer: PersistedOffer): DocumentCandidate {
     offer.termMonths !== undefined || offer.monthlyPayment !== undefined
       ? 'La oferta incluye condiciones de plazo o mensualidades.'
       : undefined,
-    offer.requiresCreditApproval ? 'Sujeta a aprobación de crédito.' : undefined,
+    offer.requiresCreditApproval
+      ? 'Sujeta a aprobación de crédito.'
+      : undefined,
     ...benefits.map(benefit => {
       if (benefit.type === 'free_insurance')
         return 'La promoción incluye seguro automotriz sin costo.';

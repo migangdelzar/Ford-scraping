@@ -49,7 +49,10 @@ export function calculateRetrievalMetrics(
 }
 
 function normalizeEvidence(value: string): string {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }
 
 export function calculateFactCoverage(
@@ -64,6 +67,7 @@ export function calculateFactCoverage(
   return {
     matched,
     missing,
-    coverage: expectedFacts.length === 0 ? 1 : matched.length / expectedFacts.length,
+    coverage:
+      expectedFacts.length === 0 ? 1 : matched.length / expectedFacts.length,
   };
 }
