@@ -19,6 +19,7 @@ describe('CI workflow contract', () => {
     expect(workflow).toMatch(/node-version:\s*['"]?22['"]?/);
     expect(workflow).toContain('npm ci');
     expect(workflow).toContain('npm run lint');
+    expect(workflow).not.toContain('continue-on-error: true');
     expect(workflow).toContain('npm run build');
     expect(workflow).toContain('npm run test:unit');
     expect(workflow).toContain('npm run test:integration');
@@ -51,10 +52,11 @@ describe('CI workflow contract', () => {
     );
   });
 
-  it('reports existing lint debt without blocking executable quality gates', () => {
+  it('blocks CI on lint and executable quality gates', () => {
     const workflow = readFileSync(workflowPath, 'utf8');
 
-    expect(workflow).toMatch(/name: Lint \(baseline debt\)[\s\S]*npm run lint/);
+    expect(workflow).toMatch(/name: Lint[\s\S]*npm run lint/);
+    expect(workflow).not.toContain('continue-on-error: true');
     expect(workflow).toMatch(/name: Build[\s\S]*npm run build/);
     expect(workflow).toMatch(/name: Unit tests[\s\S]*npm run test:unit/);
     expect(workflow).toMatch(
