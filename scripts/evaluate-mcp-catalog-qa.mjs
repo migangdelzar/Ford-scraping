@@ -183,9 +183,7 @@ async function main() {
       !exactVehicleTool?.description?.includes(
         'every specification and feature',
       ) ||
-      !exactVehicleTool.description.includes(
-        'Preserve the exact model variant',
-      )
+      !exactVehicleTool.description.includes('Preserve the exact model variant')
     ) {
       throw new Error(
         'local MCP get_vehicle tool is stale or missing complete-detail/variant guidance; restart it from current source',

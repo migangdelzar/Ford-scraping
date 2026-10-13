@@ -202,7 +202,13 @@ function createScenario(index) {
       id: index + 1,
       modelName,
       expectedTools: ['get_vehicle'],
-      disallowedTools: ['search_vehicles', 'compare_vehicles', 'compare_trims', 'compare_model_years', 'get_variant_comparisons'],
+      disallowedTools: [
+        'search_vehicles',
+        'compare_vehicles',
+        'compare_trims',
+        'compare_model_years',
+        'get_variant_comparisons',
+      ],
       user: `¿Qué especificaciones del ${modelName} 2026 están disponibles? Indica claramente si algún dato falta.`,
     };
   }
@@ -210,7 +216,13 @@ function createScenario(index) {
     return {
       id: index + 1,
       expectedTools: ['search_vehicles'],
-      disallowedTools: ['get_vehicle', 'compare_vehicles', 'compare_trims', 'compare_model_years', 'get_variant_comparisons'],
+      disallowedTools: [
+        'get_vehicle',
+        'compare_vehicles',
+        'compare_trims',
+        'compare_model_years',
+        'get_variant_comparisons',
+      ],
       user: 'Busco una SUV para acampar con mi familia, espacio para equipaje y caminos de terracería. ¿Qué Ford me conviene?',
     };
   }
@@ -219,7 +231,11 @@ function createScenario(index) {
       id: index + 1,
       modelName: 'EXPEDITION',
       expectedTools: ['compare_trims'],
-      disallowedTools: ['compare_vehicles', 'compare_model_years', 'get_variant_comparisons'],
+      disallowedTools: [
+        'compare_vehicles',
+        'compare_model_years',
+        'get_variant_comparisons',
+      ],
       user: 'Compara las versiones Expedition Active y King Ranch Max 2027. ¿Qué cambia?',
     };
   }
@@ -228,7 +244,11 @@ function createScenario(index) {
       id: index + 1,
       modelName: 'EXPEDITION',
       expectedTools: ['compare_model_years'],
-      disallowedTools: ['compare_vehicles', 'compare_trims', 'get_variant_comparisons'],
+      disallowedTools: [
+        'compare_vehicles',
+        'compare_trims',
+        'get_variant_comparisons',
+      ],
       user: '¿Qué diferencias hay entre Ford Expedition 2025, 2026 y 2027?',
     };
   }
@@ -236,7 +256,11 @@ function createScenario(index) {
     id: index + 1,
     modelName: 'EXPEDITION',
     expectedTools: ['get_variant_comparisons'],
-    disallowedTools: ['compare_vehicles', 'compare_trims', 'compare_model_years'],
+    disallowedTools: [
+      'compare_vehicles',
+      'compare_trims',
+      'compare_model_years',
+    ],
     user: '¿Cómo compara Expedition King Ranch Max 2027 contra Chevrolet Tahoe? Incluye el enlace visual de Ford.',
   };
 }

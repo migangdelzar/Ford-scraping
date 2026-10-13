@@ -11,7 +11,9 @@ describe('SearchRepository offer candidates', () => {
     expect(query.mock.calls[0][1].slice(-2)).toEqual([2025, 2027]);
 
     await repository.findOfferCandidates();
-    expect(query.mock.calls[1][0]).toContain('(o.model_year_id IS NULL OR my.model_year BETWEEN $12 AND $13)');
+    expect(query.mock.calls[1][0]).toContain(
+      '(o.model_year_id IS NULL OR my.model_year BETWEEN $12 AND $13)',
+    );
     expect(query.mock.calls[1][1].slice(-2)).toEqual([2025, 2027]);
   });
 
@@ -21,8 +23,12 @@ describe('SearchRepository offer candidates', () => {
 
     await repository.findCandidates({category: 'SUVs & Crossovers'});
 
-    expect(query.mock.calls[0][0]).toContain("c.normalized_name IN ('suvs & crossovers', 'suvs y crossovers')");
-    expect(query.mock.calls[0][0]).toContain("m.normalized_name NOT LIKE '%police%'");
+    expect(query.mock.calls[0][0]).toContain(
+      "c.normalized_name IN ('suvs & crossovers', 'suvs y crossovers')",
+    );
+    expect(query.mock.calls[0][0]).toContain(
+      "m.normalized_name NOT LIKE '%police%'",
+    );
   });
 
   it('returns unknown validity and term conflict warnings for undated records', async () => {

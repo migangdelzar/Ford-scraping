@@ -3,6 +3,10 @@ import {resolve} from 'node:path';
 import {describe, expect, it} from 'vitest';
 
 const workflowPath = resolve(process.cwd(), '.github/workflows/ci.yml');
+const releaseWorkflowPath = resolve(
+  process.cwd(),
+  '.github/workflows/release.yml',
+);
 const dockerfilePath = resolve(process.cwd(), 'Dockerfile');
 const composePath = resolve(process.cwd(), 'docker-compose.yml');
 const configPath = resolve(process.cwd(), 'src/config.ts');
@@ -19,6 +23,7 @@ describe('CI workflow contract', () => {
     expect(workflow).toMatch(/node-version:\s*['"]?22['"]?/);
     expect(workflow).toContain('npm ci');
     expect(workflow).toContain('npm run lint');
+    expect(workflow).not.toContain('continue-on-error: true');
     expect(workflow).toContain('npm run build');
     expect(workflow).toContain('npm run test:unit');
     expect(workflow).toContain('npm run test:integration');
@@ -51,10 +56,11 @@ describe('CI workflow contract', () => {
     );
   });
 
-  it('reports existing lint debt without blocking executable quality gates', () => {
+  it('blocks CI on lint and executable quality gates', () => {
     const workflow = readFileSync(workflowPath, 'utf8');
 
-    expect(workflow).toMatch(/name: Lint \(baseline debt\)[\s\S]*npm run lint/);
+    expect(workflow).toMatch(/name: Lint[\s\S]*npm run lint/);
+    expect(workflow).not.toContain('continue-on-error: true');
     expect(workflow).toMatch(/name: Build[\s\S]*npm run build/);
     expect(workflow).toMatch(/name: Unit tests[\s\S]*npm run test:unit/);
     expect(workflow).toMatch(
@@ -65,9 +71,8 @@ describe('CI workflow contract', () => {
   it('does not publish or deploy', () => {
     const workflow = readFileSync(workflowPath, 'utf8');
 
-    expect(workflow).not.toMatch(
-      /\b(publish|deploy|docker push|npm publish)\b/i,
-    );
+    expect(workflow).not.toMatch(/docker\s+push|npm\s+publish/i);
+    expect(workflow).not.toMatch(/uses:\s+[^\n]*(?:release|deploy)/i);
   });
 });
 
@@ -82,5 +87,53 @@ describe('scheduler release contract', () => {
     expect(scheduler).toContain('SYNC_TIMEZONE: America/Mexico_City');
     expect(scheduler).not.toContain('migrate');
     expect(config).toContain("SYNC_SCHEDULE: z.string().default('0 12 1 * *')");
+  });
+});
+
+describe('MCP release workflow contract', () => {
+  it('accepts only an explicit operation and full source SHA', () => {
+    const workflow = readFileSync(releaseWorkflowPath, 'utf8');
+
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
+    expect(workflow).toContain(
+      'publication and deployment remain separately gated.',
+    );
+    expect(workflow).toContain('options: [validate, deploy, rollback]');
+    expect(workflow).toContain('source_sha:');
+    expect(workflow).toContain('^[0-9a-f]{40}$');
+  });
+
+  it('builds and scans an immutable ARM64 image only after main CI succeeds', () => {
+    const workflow = readFileSync(releaseWorkflowPath, 'utf8');
+
+    expect(workflow).toContain('workflows: [CI]');
+    expect(workflow).toContain("github.event.workflow_run.event == 'push'");
+    expect(workflow).toContain(
+      'WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}',
+    );
+    expect(workflow).toContain('actions/workflows/ci.yml/runs?');
+    expect(workflow).toContain('head_sha=${source_sha}');
+    expect(workflow).toContain('platforms: linux/arm64');
+    expect(workflow).toContain(
+      'IMAGE_DIGEST: ${{ steps.build.outputs.digest }}',
+    );
+    expect(workflow).toContain('image=${IMAGE_REPOSITORY}@${IMAGE_DIGEST}');
+    expect(workflow).toContain('limit-severities-for-sarif: true');
+    expect(workflow).toContain('anchore/sbom-action@v0.20.0');
+    expect(workflow).toContain('actions/attest-build-provenance@v2');
+    expect(workflow).toContain('actions/cache@v4');
+  });
+
+  it('pins the public OCI action and keeps production behind both readiness gates', () => {
+    const workflow = readFileSync(releaseWorkflowPath, 'utf8');
+
+    expect(workflow).toMatch(
+      /uses: migangdelzar\/Ford-oci-deployment-action\/\.github\/actions\/oci-blue-green@[0-9a-f]{40}/,
+    );
+    expect(workflow).toContain("vars.PRODUCTION_DEPLOY_ENABLED == 'true'");
+    expect(workflow).toContain("vars.RUNTIME_VAULT_READY == 'true'");
+    expect(workflow).toContain('environment: production');
+    expect(workflow).not.toContain('continue-on-error: true');
   });
 });

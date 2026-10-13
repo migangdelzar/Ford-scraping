@@ -9,8 +9,14 @@ import {
   getOfferValidityStatus,
 } from '../domain/offers.js';
 
-function comparisonValueKind(value: unknown): 'boolean' | 'numeric' | 'text' | 'missing' {
-  if (typeof value !== 'string' || !value.trim() || /^(?:[-—]|n\/?a)$/i.test(value.trim())) {
+function comparisonValueKind(
+  value: unknown,
+): 'boolean' | 'numeric' | 'text' | 'missing' {
+  if (
+    typeof value !== 'string' ||
+    !value.trim() ||
+    /^(?:[-—]|n\/?a)$/i.test(value.trim())
+  ) {
     return 'missing';
   }
   if (/^(?:s[ií]|no)$/i.test(value.trim())) return 'boolean';
@@ -21,7 +27,9 @@ function comparisonValueKind(value: unknown): 'boolean' | 'numeric' | 'text' | '
 function isInvalidQuantitativeBoolean(name: unknown, value: unknown): boolean {
   return (
     typeof name === 'string' &&
-    /precio|rendimiento|consumo|econom[ií]a|potencia|torque|capacidad|arrastre|velocidad|kilometraje|autonom[ií]a/i.test(name) &&
+    /precio|rendimiento|consumo|econom[ií]a|potencia|torque|capacidad|arrastre|velocidad|kilometraje|autonom[ií]a/i.test(
+      name,
+    ) &&
     comparisonValueKind(value) === 'boolean'
   );
 }
@@ -31,14 +39,20 @@ function classifyComparisonRows(rawData: unknown): {
   comparableFacts: Array<Record<string, unknown>>;
   excludedRows: Array<Record<string, unknown>>;
 } {
-  const source = typeof rawData === 'object' && rawData !== null && !Array.isArray(rawData)
-    ? rawData as Record<string, unknown>
-    : {};
+  const source =
+    typeof rawData === 'object' && rawData !== null && !Array.isArray(rawData)
+      ? (rawData as Record<string, unknown>)
+      : {};
   const rows = Array.isArray(source.rows) ? source.rows : [];
   const comparableFacts: Array<Record<string, unknown>> = [];
   const excludedRows: Array<Record<string, unknown>> = [];
   for (const candidate of rows) {
-    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) continue;
+    if (
+      typeof candidate !== 'object' ||
+      candidate === null ||
+      Array.isArray(candidate)
+    )
+      continue;
     const row = candidate as Record<string, unknown>;
     const fordKind = comparisonValueKind(row.fordValue);
     const competitorKind = comparisonValueKind(row.competitorValue);
@@ -51,7 +65,8 @@ function classifyComparisonRows(rawData: unknown): {
     ) {
       excludedRows.push({
         ...row,
-        excludedReason: 'Source values are missing, use different value types, or encode a quantitative specification as yes/no; do not compare as a like-for-like difference.',
+        excludedReason:
+          'Source values are missing, use different value types, or encode a quantitative specification as yes/no; do not compare as a like-for-like difference.',
       });
     } else {
       comparableFacts.push(row);
@@ -86,12 +101,20 @@ export class VehicleQueryService {
        JOIN ford.models m ON m.id = my.model_id
        WHERE m.normalized_name = $1 AND my.model_year BETWEEN $2 AND $3
        ORDER BY my.model_year DESC`,
-      [normalizeModelKey(model), MIN_SUPPORTED_MODEL_YEAR, MAX_SUPPORTED_MODEL_YEAR],
+      [
+        normalizeModelKey(model),
+        MIN_SUPPORTED_MODEL_YEAR,
+        MAX_SUPPORTED_MODEL_YEAR,
+      ],
     );
     return result.rows.map(row => Number(row.model_year));
   }
 
-  async getByModelYear(model: string, year: number, trim?: string): Promise<unknown | null> {
+  async getByModelYear(
+    model: string,
+    year: number,
+    trim?: string,
+  ): Promise<unknown | null> {
     const vehicle = await this.pool.query(
       `SELECT m.id AS model_id, m.name AS model, my.id AS model_year_id, my.model_year AS year,
               my.starting_price AS price, my.currency, my.metadata,
@@ -112,36 +135,44 @@ export class VehicleQueryService {
       ) model_page ON true
       WHERE m.normalized_name = $1 AND my.model_year = $2
         AND my.model_year BETWEEN $3 AND $4`,
-      [normalizeModelKey(model), year, MIN_SUPPORTED_MODEL_YEAR, MAX_SUPPORTED_MODEL_YEAR],
+      [
+        normalizeModelKey(model),
+        year,
+        MIN_SUPPORTED_MODEL_YEAR,
+        MAX_SUPPORTED_MODEL_YEAR,
+      ],
     );
     if (!vehicle.rowCount) return null;
     const row = vehicle.rows[0];
     if (trim) {
-      const trimKeys = [...new Set([
-        normalizeModelKey(trim),
-        normalizeTrimForModel(model, trim),
-        normalizeModelKey(`${model} ${trim}`),
-      ])];
-      const [variants, comparisonLinks, variantResult, technicalSheet, images] = await Promise.all([
-        this.pool.query(
-          `SELECT v.id, v.name, v.trim_name, v.metadata,
+      const trimKeys = [
+        ...new Set([
+          normalizeModelKey(trim),
+          normalizeTrimForModel(model, trim),
+          normalizeModelKey(`${model} ${trim}`),
+        ]),
+      ];
+      const [variants, comparisonLinks, variantResult, technicalSheet, images] =
+        await Promise.all([
+          this.pool.query(
+            `SELECT v.id, v.name, v.trim_name, v.metadata,
                   source.url AS source_url, source.crawled_at
            FROM ford.variants v
            LEFT JOIN ford.pages source ON source.id = v.source_page_id
            WHERE v.model_year_id = $1 ORDER BY v.name`,
-          [row.model_year_id],
-        ),
-        this.pool.query<{trim_name: string; target_url: string}>(
-          `SELECT DISTINCT v.name AS trim_name, p.url AS target_url
+            [row.model_year_id],
+          ),
+          this.pool.query<{trim_name: string; target_url: string}>(
+            `SELECT DISTINCT v.name AS trim_name, p.url AS target_url
            FROM ford.comparisons c
            JOIN ford.variants v ON v.id = c.variant_id
            JOIN ford.pages p ON p.id = c.source_page_id
            WHERE c.model_year_id = $1
            ORDER BY v.name, p.url`,
-          [row.model_year_id],
-        ),
-        this.pool.query(
-          `SELECT v.id, v.name, v.trim_name, v.price, v.currency,
+            [row.model_year_id],
+          ),
+          this.pool.query(
+            `SELECT v.id, v.name, v.trim_name, v.price, v.currency,
                   variant_page.url AS source_url,
                   comparison_page.url AS comparison_url,
                   coalesce(price_page.url, comparison_page.url) AS price_source_url
@@ -160,26 +191,27 @@ export class VehicleQueryService {
            ) price_page ON true
            WHERE v.model_year_id = $1 AND v.normalized_name = ANY($2::text[])
            ORDER BY v.name LIMIT 1`,
-          [row.model_year_id, trimKeys],
-        ),
-        this.pool.query(
-          `SELECT p.url
+            [row.model_year_id, trimKeys],
+          ),
+          this.pool.query(
+            `SELECT p.url
            FROM ford.specifications s JOIN ford.pages p ON p.id = s.source_page_id
            WHERE s.model_year_id = $1 AND s.variant_id IS NULL AND p.page_type = 'technical_sheet'
            ORDER BY p.crawled_at DESC NULLS LAST, p.id DESC LIMIT 1`,
-          [row.model_year_id],
-        ),
-        this.pool.query(
-          `SELECT i.url, i.alt_text, i.image_type, i.width, i.height,
+            [row.model_year_id],
+          ),
+          this.pool.query(
+            `SELECT i.url, i.alt_text, i.image_type, i.width, i.height,
                   source.url AS source_url, source.crawled_at
            FROM ford.images i
            LEFT JOIN ford.pages source ON source.id = i.source_page_id
            WHERE i.model_year_id = $1 AND i.variant_id IS NULL
            ORDER BY i.image_type, i.id`,
-          [row.model_year_id],
-        ),
-      ]);
-      const variant = variantResult.rows[0] as Record<string, unknown> | undefined;
+            [row.model_year_id],
+          ),
+        ]);
+      const variant = variantResult.rows[0] as
+        Record<string, unknown> | undefined;
       if (!variant) {
         return {
           ...row,
@@ -221,7 +253,8 @@ export class VehicleQueryService {
         ...row,
         price: variant.price ?? null,
         currency: variant.currency ?? row.currency,
-        price_source_url: variant.price_source_url ?? variant.comparison_url ?? null,
+        price_source_url:
+          variant.price_source_url ?? variant.comparison_url ?? null,
         trim_name: variant.trim_name ?? variant.name,
         trim_status: 'found',
         trim_source_url: variant.comparison_url ?? variant.source_url ?? null,
@@ -394,7 +427,12 @@ export class PageLinkService {
        ORDER BY target_url ~* '/Comparativo/' DESC, is_internal DESC,
          (anchor_text IS NULL), anchor_text, target_url
        OFFSET $2 LIMIT $3`,
-      [page.rows[0].source_page_id, Math.max(0, offset), Math.min(Math.max(1, limit), 200), includeAssets],
+      [
+        page.rows[0].source_page_id,
+        Math.max(0, offset),
+        Math.min(Math.max(1, limit), 200),
+        includeAssets,
+      ],
     );
     const count = await this.pool.query<{count: string}>(
       `SELECT count(DISTINCT candidate_url)::text AS count FROM (
@@ -440,11 +478,13 @@ export class PromotionService {
 
   async list(filters: Record<string, unknown>): Promise<unknown> {
     const model = typeof filters.model === 'string' ? filters.model : undefined;
-    const modelYear = typeof filters.modelYear === 'number' ? filters.modelYear : undefined;
+    const modelYear =
+      typeof filters.modelYear === 'number' ? filters.modelYear : undefined;
     const activeOnly = filters.activeOnly === true;
-    const asOf = typeof filters.asOf === 'string'
-      ? filters.asOf
-      : new Date().toISOString().slice(0, 10);
+    const asOf =
+      typeof filters.asOf === 'string'
+        ? filters.asOf
+        : new Date().toISOString().slice(0, 10);
     const result = await this.pool.query(
       `SELECT o.id, o.model_year_id, m.name AS model_name, my.model_year,
               o.title, o.description, o.offer_type, o.valid_from, o.valid_until,
@@ -478,8 +518,14 @@ export class PromotionService {
            AND (o.valid_until IS NULL OR o.valid_until >= $1::date)
          ))
        ORDER BY o.valid_until NULLS LAST, o.title`,
-      [asOf, model ? normalizeModelKey(model) : null, modelYear ?? null, activeOnly,
-        MIN_SUPPORTED_MODEL_YEAR, MAX_SUPPORTED_MODEL_YEAR],
+      [
+        asOf,
+        model ? normalizeModelKey(model) : null,
+        modelYear ?? null,
+        activeOnly,
+        MIN_SUPPORTED_MODEL_YEAR,
+        MAX_SUPPORTED_MODEL_YEAR,
+      ],
     );
     return result.rows.map((row: Record<string, unknown>) => ({
       ...row,
@@ -506,7 +552,11 @@ export class PromotionService {
 export class ComparisonService {
   constructor(private readonly pool: Pool) {}
 
-  async compareTrims(model: string, year: number, trims: string[]): Promise<unknown> {
+  async compareTrims(
+    model: string,
+    year: number,
+    trims: string[],
+  ): Promise<unknown> {
     const result = await this.pool.query(
       `SELECT m.name AS model, my.model_year AS year, v.id AS variant_id,
               v.name AS trim, v.price, v.currency,
@@ -551,24 +601,29 @@ export class ComparisonService {
       [
         normalizeModelKey(model),
         year,
-        [...new Set(trims.flatMap(trim => {
-          const fullName = normalizeModelKey(trim);
-          const trimName = normalizeTrimForModel(model, trim);
-          return fullName === trimName ? [fullName] : [fullName, trimName];
-        }))],
+        [
+          ...new Set(
+            trims.flatMap(trim => {
+              const fullName = normalizeModelKey(trim);
+              const trimName = normalizeTrimForModel(model, trim);
+              return fullName === trimName ? [fullName] : [fullName, trimName];
+            }),
+          ),
+        ],
         MIN_SUPPORTED_MODEL_YEAR,
         MAX_SUPPORTED_MODEL_YEAR,
       ],
     );
     const foundTrims = result.rows.map(row => {
       const facts = Array.isArray(row.specifications)
-        ? row.specifications as Array<Record<string, unknown>>
+        ? (row.specifications as Array<Record<string, unknown>>)
         : [];
       const excludedSourceFacts = facts
         .filter(fact => isInvalidQuantitativeBoolean(fact.name, fact.value))
         .map(fact => ({
           ...fact,
-          excludedReason: 'A quantitative specification is recorded as a yes/no value; do not use as a trim difference.',
+          excludedReason:
+            'A quantitative specification is recorded as a yes/no value; do not use as a trim difference.',
         }));
       return {
         ...row,
@@ -580,17 +635,23 @@ export class ComparisonService {
     });
     const pairs: Array<Record<string, unknown>> = [];
     for (let leftIndex = 0; leftIndex < foundTrims.length; leftIndex += 1) {
-      for (let rightIndex = leftIndex + 1; rightIndex < foundTrims.length; rightIndex += 1) {
+      for (
+        let rightIndex = leftIndex + 1;
+        rightIndex < foundTrims.length;
+        rightIndex += 1
+      ) {
         const left = foundTrims[leftIndex];
         const right = foundTrims[rightIndex];
         const leftFacts = new Map(
           (left.specifications as Array<Record<string, unknown>>).map(fact => [
-            String(fact.normalizedName), fact,
+            String(fact.normalizedName),
+            fact,
           ]),
         );
         const rightFacts = new Map(
           (right.specifications as Array<Record<string, unknown>>).map(fact => [
-            String(fact.normalizedName), fact,
+            String(fact.normalizedName),
+            fact,
           ]),
         );
         const sharedChanges = [...leftFacts.entries()]
@@ -600,9 +661,13 @@ export class ComparisonService {
               counterpart &&
               key !== 'precio' &&
               comparisonValueKind(fact.value) !== 'missing' &&
-              comparisonValueKind(fact.value) === comparisonValueKind(counterpart.value) &&
+              comparisonValueKind(fact.value) ===
+                comparisonValueKind(counterpart.value) &&
               !isInvalidQuantitativeBoolean(fact.name, fact.value) &&
-              !isInvalidQuantitativeBoolean(counterpart.name, counterpart.value) &&
+              !isInvalidQuantitativeBoolean(
+                counterpart.name,
+                counterpart.value,
+              ) &&
               !String(fact.value).includes('|') &&
               !String(counterpart.value).includes('|') &&
               fact.value !== counterpart.value
@@ -613,8 +678,16 @@ export class ComparisonService {
             return {
               normalizedName: key,
               name: fact.name,
-              left: {trim: left.trim, value: fact.value, sourceUrl: fact.sourceUrl},
-              right: {trim: right.trim, value: counterpart.value, sourceUrl: counterpart.sourceUrl},
+              left: {
+                trim: left.trim,
+                value: fact.value,
+                sourceUrl: fact.sourceUrl,
+              },
+              right: {
+                trim: right.trim,
+                value: counterpart.value,
+                sourceUrl: counterpart.sourceUrl,
+              },
             };
           });
         const priceDelta =
@@ -638,15 +711,18 @@ export class ComparisonService {
       model,
       year,
       modelPageUrl: foundTrims.find(row => row.model_page_url)?.model_page_url,
-      technicalSheetUrl: foundTrims.find(row => row.technical_sheet_url)?.technical_sheet_url,
+      technicalSheetUrl: foundTrims.find(row => row.technical_sheet_url)
+        ?.technical_sheet_url,
       requestedTrims: trims,
       foundTrims,
       trimPairs: pairs,
-      missingTrims: trims.filter(trim =>
-        !foundTrims.some(row =>
-          normalizeTrimForModel(model, String(row.trim)) ===
-          normalizeTrimForModel(model, trim),
-        ),
+      missingTrims: trims.filter(
+        trim =>
+          !foundTrims.some(
+            row =>
+              normalizeTrimForModel(model, String(row.trim)) ===
+              normalizeTrimForModel(model, trim),
+          ),
       ),
       note: 'Only source-backed variant facts are included; absent values are unknown.',
     };
@@ -732,18 +808,33 @@ export class ComparisonService {
        WHERE m.normalized_name = $1 AND my.model_year = ANY($2::int[])
          AND my.model_year BETWEEN $3 AND $4
        ORDER BY my.model_year`,
-      [normalizeModelKey(model), years, MIN_SUPPORTED_MODEL_YEAR, MAX_SUPPORTED_MODEL_YEAR],
+      [
+        normalizeModelKey(model),
+        years,
+        MIN_SUPPORTED_MODEL_YEAR,
+        MAX_SUPPORTED_MODEL_YEAR,
+      ],
     );
     const pairs: Array<Record<string, unknown>> = [];
     for (let leftIndex = 0; leftIndex < result.rows.length; leftIndex += 1) {
-      for (let rightIndex = leftIndex + 1; rightIndex < result.rows.length; rightIndex += 1) {
+      for (
+        let rightIndex = leftIndex + 1;
+        rightIndex < result.rows.length;
+        rightIndex += 1
+      ) {
         const left = result.rows[leftIndex];
         const right = result.rows[rightIndex];
         const leftFacts = new Map(
-          (left.specifications as Array<Record<string, unknown>>).map(fact => [String(fact.normalizedName), fact]),
+          (left.specifications as Array<Record<string, unknown>>).map(fact => [
+            String(fact.normalizedName),
+            fact,
+          ]),
         );
         const rightFacts = new Map(
-          (right.specifications as Array<Record<string, unknown>>).map(fact => [String(fact.normalizedName), fact]),
+          (right.specifications as Array<Record<string, unknown>>).map(fact => [
+            String(fact.normalizedName),
+            fact,
+          ]),
         );
         const changes = [...leftFacts.entries()]
           .filter(([key, fact]) => {
@@ -765,27 +856,46 @@ export class ComparisonService {
             return {
               normalizedName: key,
               name: fact.name,
-              older: {year: left.year, value: fact.value, sourceUrl: fact.sourceUrl},
-              newer: {year: right.year, value: counterpart.value, sourceUrl: counterpart.sourceUrl},
+              older: {
+                year: left.year,
+                value: fact.value,
+                sourceUrl: fact.sourceUrl,
+              },
+              newer: {
+                year: right.year,
+                value: counterpart.value,
+                sourceUrl: counterpart.sourceUrl,
+              },
             };
           });
         const leftVariants = Array.isArray(left.variants)
-          ? left.variants as Array<Record<string, unknown>>
+          ? (left.variants as Array<Record<string, unknown>>)
           : [];
         const rightVariants = Array.isArray(right.variants)
-          ? right.variants as Array<Record<string, unknown>>
+          ? (right.variants as Array<Record<string, unknown>>)
           : [];
-        const rightVariantsByName = new Map(rightVariants.map(variant => [
-          String(variant.normalizedTrim ?? normalizeModelKey(String(variant.trim ?? ''))),
-          variant,
-        ]));
+        const rightVariantsByName = new Map(
+          rightVariants.map(variant => [
+            String(
+              variant.normalizedTrim ??
+                normalizeModelKey(String(variant.trim ?? '')),
+            ),
+            variant,
+          ]),
+        );
         const leftTrimNames = leftVariants.map(variant => ({
           name: String(variant.trim ?? ''),
-          key: String(variant.normalizedTrim ?? normalizeModelKey(String(variant.trim ?? ''))),
+          key: String(
+            variant.normalizedTrim ??
+              normalizeModelKey(String(variant.trim ?? '')),
+          ),
         }));
         const rightTrimNames = rightVariants.map(variant => ({
           name: String(variant.trim ?? ''),
-          key: String(variant.normalizedTrim ?? normalizeModelKey(String(variant.trim ?? ''))),
+          key: String(
+            variant.normalizedTrim ??
+              normalizeModelKey(String(variant.trim ?? '')),
+          ),
         }));
         const trimChanges = leftVariants.flatMap(leftVariant => {
           const trim = String(leftVariant.trim ?? '');
@@ -796,43 +906,69 @@ export class ComparisonService {
           if (!rightVariant) return [];
           const variantFacts = (variant: Record<string, unknown>) =>
             Array.isArray(variant.specifications)
-              ? variant.specifications as Array<Record<string, unknown>>
+              ? (variant.specifications as Array<Record<string, unknown>>)
               : [];
-          const leftVariantFacts = new Map(variantFacts(leftVariant).map(fact => [
-            String(fact.normalizedName), fact,
-          ]));
-          const rightVariantFacts = new Map(variantFacts(rightVariant).map(fact => [
-            String(fact.normalizedName), fact,
-          ]));
+          const leftVariantFacts = new Map(
+            variantFacts(leftVariant).map(fact => [
+              String(fact.normalizedName),
+              fact,
+            ]),
+          );
+          const rightVariantFacts = new Map(
+            variantFacts(rightVariant).map(fact => [
+              String(fact.normalizedName),
+              fact,
+            ]),
+          );
           const changedVariantFacts = [...leftVariantFacts.entries()]
             .filter(([key, fact]) => {
               const counterpart = rightVariantFacts.get(key);
               const comparable = (value: unknown) =>
-                typeof value === 'string' && value.trim() !== '' &&
+                typeof value === 'string' &&
+                value.trim() !== '' &&
                 !/^(?:[-—]|n\/?a|no disponible)$/i.test(value.trim()) &&
                 !value.includes('|');
-              return counterpart && comparable(fact.value) &&
-                comparable(counterpart.value) && fact.value !== counterpart.value;
+              return (
+                counterpart &&
+                comparable(fact.value) &&
+                comparable(counterpart.value) &&
+                fact.value !== counterpart.value
+              );
             })
             .map(([key, fact]) => {
               const counterpart = rightVariantFacts.get(key)!;
               return {
                 normalizedName: key,
                 name: fact.name,
-                older: {year: left.year, value: fact.value, sourceUrl: fact.sourceUrl},
-                newer: {year: right.year, value: counterpart.value, sourceUrl: counterpart.sourceUrl},
+                older: {
+                  year: left.year,
+                  value: fact.value,
+                  sourceUrl: fact.sourceUrl,
+                },
+                newer: {
+                  year: right.year,
+                  value: counterpart.value,
+                  sourceUrl: counterpart.sourceUrl,
+                },
               };
             });
-          return [{
-            trim,
-            priceDifferenceMxn:
-              leftVariant.price === null || leftVariant.price === undefined ||
-              rightVariant.price === null || rightVariant.price === undefined
-                ? null
-                : Number(rightVariant.price) - Number(leftVariant.price),
-            sourceUrls: {from: leftVariant.sourceUrl, to: rightVariant.sourceUrl},
-            changedFacts: changedVariantFacts,
-          }];
+          return [
+            {
+              trim,
+              priceDifferenceMxn:
+                leftVariant.price === null ||
+                leftVariant.price === undefined ||
+                rightVariant.price === null ||
+                rightVariant.price === undefined
+                  ? null
+                  : Number(rightVariant.price) - Number(leftVariant.price),
+              sourceUrls: {
+                from: leftVariant.sourceUrl,
+                to: rightVariant.sourceUrl,
+              },
+              changedFacts: changedVariantFacts,
+            },
+          ];
         });
         pairs.push({
           fromYear: left.year,
@@ -841,12 +977,22 @@ export class ComparisonService {
             left.price === null || right.price === null
               ? null
               : Number(right.price) - Number(left.price),
-          priceSourceUrls: {from: left.price_source_url, to: right.price_source_url},
+          priceSourceUrls: {
+            from: left.price_source_url,
+            to: right.price_source_url,
+          },
           changedFacts: changes,
           trimChanges,
           unmatchedTrims: {
-            from: leftTrimNames.filter(trim => !rightVariantsByName.has(trim.key)).map(trim => trim.name),
-            to: rightTrimNames.filter(trim => !leftTrimNames.some(leftTrim => leftTrim.key === trim.key)).map(trim => trim.name),
+            from: leftTrimNames
+              .filter(trim => !rightVariantsByName.has(trim.key))
+              .map(trim => trim.name),
+            to: rightTrimNames
+              .filter(
+                trim =>
+                  !leftTrimNames.some(leftTrim => leftTrim.key === trim.key),
+              )
+              .map(trim => trim.name),
           },
           note: 'Only differing single values present for both years are compared. Placeholder and multi-trim grouped values remain in foundYears as source facts but are not treated as year changes.',
         });
@@ -856,12 +1002,18 @@ export class ComparisonService {
       model,
       requestedYears: [...years].sort((a, b) => a - b),
       foundYears: result.rows,
-      missingYears: years.filter(year => !result.rows.some(row => Number(row.year) === year)),
+      missingYears: years.filter(
+        year => !result.rows.some(row => Number(row.year) === year),
+      ),
       yearPairs: pairs,
     };
   }
 
-  async getVariantComparisons(model: string, year: number, trim?: string): Promise<unknown> {
+  async getVariantComparisons(
+    model: string,
+    year: number,
+    trim?: string,
+  ): Promise<unknown> {
     const modelPageResult = await this.pool.query(
       `SELECT p.url AS model_page_url,
               (SELECT technical_page.url
@@ -878,7 +1030,12 @@ export class ComparisonService {
          AND my.model_year BETWEEN $3 AND $4
        ORDER BY p.crawled_at DESC NULLS LAST, p.id DESC
        LIMIT 1`,
-      [normalizeModelKey(model), year, MIN_SUPPORTED_MODEL_YEAR, MAX_SUPPORTED_MODEL_YEAR],
+      [
+        normalizeModelKey(model),
+        year,
+        MIN_SUPPORTED_MODEL_YEAR,
+        MAX_SUPPORTED_MODEL_YEAR,
+      ],
     );
     const modelPageUrl = modelPageResult.rows[0]?.model_page_url;
     const technicalSheetUrl = modelPageResult.rows[0]?.technical_sheet_url;
@@ -898,8 +1055,13 @@ export class ComparisonService {
          AND my.model_year BETWEEN $4 AND $5
          AND ($3::text IS NULL OR v.normalized_name = $3)
        ORDER BY v.name, c.competitor_make, c.competitor_model`,
-      [normalizeModelKey(model), year, trim ? normalizeModelKey(trim) : null,
-        MIN_SUPPORTED_MODEL_YEAR, MAX_SUPPORTED_MODEL_YEAR],
+      [
+        normalizeModelKey(model),
+        year,
+        trim ? normalizeModelKey(trim) : null,
+        MIN_SUPPORTED_MODEL_YEAR,
+        MAX_SUPPORTED_MODEL_YEAR,
+      ],
     );
     const comparisons = result.rows.map(row => {
       const classified = classifyComparisonRows(row.raw_data);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global console, process */
+/* global console, process, URL */
 import 'dotenv/config';
 import {readFile, mkdir, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -27,7 +27,9 @@ function requireLoopback(value, name) {
     throw new Error(`${name} must be a valid URL`);
   }
   if (!LOOPBACK_HOSTS.has(hostname)) {
-    throw new Error(`${name} must point to loopback; this evaluator is local-only`);
+    throw new Error(
+      `${name} must point to loopback; this evaluator is local-only`,
+    );
   }
 }
 
@@ -59,22 +61,29 @@ function parseCases(source) {
         throw new Error(`semantic case line ${index + 1} is invalid`);
       }
       if (value.domain === 'offer' && (!value.model || !value.year)) {
-        throw new Error(`offer case ${value.id} requires model and year filters`);
+        throw new Error(
+          `offer case ${value.id} requires model and year filters`,
+        );
       }
       ids.add(value.id);
       return value;
     });
 }
 
-async function findNearestDocuments(pool, vector, testCase, limit, includeOffers, embeddingModel) {
+async function findNearestDocuments(
+  pool,
+  vector,
+  testCase,
+  limit,
+  includeOffers,
+  embeddingModel,
+) {
   const includeOfferFilter = includeOffers ? '' : 'AND d.offer_id IS NULL';
   const vehicleDocumentFilter = includeOffers
     ? ''
     : `AND (d.document_type = 'vehicle_profile'
         OR (d.document_type = 'overview' AND p.page_type = 'model'))`;
-  const modelFilter = testCase.model
-    ? normalizeModelKey(testCase.model)
-    : null;
+  const modelFilter = testCase.model ? normalizeModelKey(testCase.model) : null;
   const result = await pool.query(
     `WITH scored AS (
        SELECT d.document_key, d.document_type, d.title, d.content,
@@ -112,7 +121,16 @@ async function findNearestDocuments(pool, vector, testCase, limit, includeOffers
      SELECT * FROM scored WHERE entity_rank = 1
      ORDER BY similarity DESC
      LIMIT $5`,
-    [JSON.stringify(vector), testCase.domain, testCase.year ?? null, modelFilter, limit, embeddingModel ?? null, testCase.termMonths ?? null, testCase.category ?? null],
+    [
+      JSON.stringify(vector),
+      testCase.domain,
+      testCase.year ?? null,
+      modelFilter,
+      limit,
+      embeddingModel ?? null,
+      testCase.termMonths ?? null,
+      testCase.category ?? null,
+    ],
   );
   return result.rows.map(row => ({
     documentKey: row.document_key,
@@ -172,7 +190,15 @@ async function findKeywordDocuments(pool, testCase, limit) {
      SELECT * FROM scored WHERE entity_rank = 1
      ORDER BY score DESC
      LIMIT $5`,
-    [testCase.query, testCase.domain, testCase.year ?? null, modelFilter, limit, testCase.termMonths ?? null, testCase.category ?? null],
+    [
+      testCase.query,
+      testCase.domain,
+      testCase.year ?? null,
+      modelFilter,
+      limit,
+      testCase.termMonths ?? null,
+      testCase.category ?? null,
+    ],
   );
   return result.rows.map(row => ({
     documentKey: row.document_key,
@@ -219,23 +245,31 @@ function compareRankings(keyword, semantic, testCase) {
   keyword.forEach((hit, index) => add(hit, 'keyword', index + 1));
   semantic.forEach((hit, index) => add(hit, 'semantic', index + 1));
   const rows = [...byEntity.values()];
-  const blend = rows.toSorted((left, right) => {
-    const leftScore = semantic.length
-      ? left.keywordScore * 0.3 + left.semanticScore * 0.7
-      : left.keywordScore;
-    const rightScore = semantic.length
-      ? right.keywordScore * 0.3 + right.semanticScore * 0.7
-      : right.keywordScore;
-    return rightScore - leftScore || left.id.localeCompare(right.id);
-  }).slice(0, TOP_K);
-  const rrf = rows.toSorted((left, right) => {
-    const leftScore = (left.keywordRank ? 1 / (60 + left.keywordRank) : 0) +
-      (left.semanticRank ? 1 / (60 + left.semanticRank) : 0);
-    const rightScore = (right.keywordRank ? 1 / (60 + right.keywordRank) : 0) +
-      (right.semanticRank ? 1 / (60 + right.semanticRank) : 0);
-    return rightScore - leftScore || left.id.localeCompare(right.id);
-  }).slice(0, TOP_K);
-  const relevantEntities = [...new Set(testCase.relevantDocumentKeys.map(entityId))];
+  const blend = rows
+    .toSorted((left, right) => {
+      const leftScore = semantic.length
+        ? left.keywordScore * 0.3 + left.semanticScore * 0.7
+        : left.keywordScore;
+      const rightScore = semantic.length
+        ? right.keywordScore * 0.3 + right.semanticScore * 0.7
+        : right.keywordScore;
+      return rightScore - leftScore || left.id.localeCompare(right.id);
+    })
+    .slice(0, TOP_K);
+  const rrf = rows
+    .toSorted((left, right) => {
+      const leftScore =
+        (left.keywordRank ? 1 / (60 + left.keywordRank) : 0) +
+        (left.semanticRank ? 1 / (60 + left.semanticRank) : 0);
+      const rightScore =
+        (right.keywordRank ? 1 / (60 + right.keywordRank) : 0) +
+        (right.semanticRank ? 1 / (60 + right.semanticRank) : 0);
+      return rightScore - leftScore || left.id.localeCompare(right.id);
+    })
+    .slice(0, TOP_K);
+  const relevantEntities = [
+    ...new Set(testCase.relevantDocumentKeys.map(entityId)),
+  ];
   const summarize = ranked => {
     const hits = ranked.flatMap(row => [...row.evidence.values()]);
     return {
@@ -295,7 +329,9 @@ async function assertRelevantDocumentsExist(pool, testCase) {
   const found = new Set(result.rows.map(row => row.document_key));
   const missing = testCase.relevantDocumentKeys.filter(key => !found.has(key));
   if (missing.length) {
-    throw new Error(`${testCase.id} gold documents are missing or out of scope: ${missing.join(', ')}`);
+    throw new Error(
+      `${testCase.id} gold documents are missing or out of scope: ${missing.join(', ')}`,
+    );
   }
 }
 
@@ -323,7 +359,8 @@ function averageMetrics(results) {
   return Object.fromEntries(
     keys.map(key => [
       key,
-      results.reduce((sum, item) => sum + item.metrics[key], 0) / results.length,
+      results.reduce((sum, item) => sum + item.metrics[key], 0) /
+        results.length,
     ]),
   );
 }
@@ -333,7 +370,9 @@ async function main() {
   requireLoopback(config.databaseUrl, 'DATABASE_URL');
   requireLoopback(config.embedding.apiUrl.toString(), 'EMBEDDING_API_URL');
   if (config.embedding.provider !== 'ollama') {
-    throw new Error('semantic retrieval evaluation requires the local Ollama embedding provider');
+    throw new Error(
+      'semantic retrieval evaluation requires the local Ollama embedding provider',
+    );
   }
 
   const cases = parseCases(await readFile(CASES_PATH, 'utf8'));
@@ -358,7 +397,11 @@ async function main() {
           ? ranked.map(hit => hit.documentKey.split(':')[0])
           : ranked.map(hit => hit.documentKey),
         testCase.domain === 'vehicle'
-          ? [...new Set(testCase.relevantDocumentKeys.map(key => key.split(':')[0]))]
+          ? [
+              ...new Set(
+                testCase.relevantDocumentKeys.map(key => key.split(':')[0]),
+              ),
+            ]
           : testCase.relevantDocumentKeys,
         TOP_K,
       );
@@ -375,7 +418,11 @@ async function main() {
         false,
         provider.model,
       );
-      const rankingComparison = compareRankings(keywordHits, semanticHits, testCase);
+      const rankingComparison = compareRankings(
+        keywordHits,
+        semanticHits,
+        testCase,
+      );
       let legacyOfferHits = 0;
       if (testCase.domain === 'vehicle') {
         const legacyRanked = await findNearestDocuments(
@@ -401,7 +448,10 @@ async function main() {
         rankingComparison,
         nonConfiguredEmbeddingHits: ranked
           .filter(hit => hit.embeddingModel !== provider.model)
-          .map(hit => ({documentKey: hit.documentKey, embeddingModel: hit.embeddingModel})),
+          .map(hit => ({
+            documentKey: hit.documentKey,
+            embeddingModel: hit.embeddingModel,
+          })),
         legacyUnfilteredOfferHitsAtK: legacyOfferHits,
       });
     }
@@ -409,7 +459,11 @@ async function main() {
     const report = {
       evaluator: 'deterministic-local-pgvector',
       generatedAt: new Date().toISOString(),
-      queryEmbedding: {provider: config.embedding.provider, model: provider.model, dimensions: provider.dimensions},
+      queryEmbedding: {
+        provider: config.embedding.provider,
+        model: provider.model,
+        dimensions: provider.dimensions,
+      },
       topK: TOP_K,
       llmJudge: false,
       databaseWrites: 0,
@@ -426,16 +480,23 @@ async function main() {
         rankingComparison: Object.fromEntries(
           ['currentBlend', 'rrf'].map(method => [
             method,
-            averageMetrics(results
-              .filter(item => item.domain === 'vehicle')
-              .map(item => ({metrics: item.rankingComparison[method].metrics}))),
+            averageMetrics(
+              results
+                .filter(item => item.domain === 'vehicle')
+                .map(item => ({
+                  metrics: item.rankingComparison[method].metrics,
+                })),
+            ),
           ]),
         ),
-        rankingComparisonCases: results.filter(item => item.domain === 'vehicle').length,
-        answerFactCoverage: results.reduce(
-          (sum, item) => sum + item.answerFactCoverage.coverage,
-          0,
-        ) / results.length,
+        rankingComparisonCases: results.filter(
+          item => item.domain === 'vehicle',
+        ).length,
+        answerFactCoverage:
+          results.reduce(
+            (sum, item) => sum + item.answerFactCoverage.coverage,
+            0,
+          ) / results.length,
         totalLegacyUnfilteredOfferHitsAtK: results.reduce(
           (sum, item) => sum + item.legacyUnfilteredOfferHitsAtK,
           0,
@@ -452,7 +513,17 @@ async function main() {
     const filename = `${report.generatedAt.replace(/[:.]/g, '-')}-${provider.model.replaceAll(':', '-')}.json`;
     const outputPath = join(outputDir, filename);
     await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify({reportPath: outputPath, summary: report.summary, corpus: report.corpus}, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          reportPath: outputPath,
+          summary: report.summary,
+          corpus: report.corpus,
+        },
+        null,
+        2,
+      ),
+    );
   } finally {
     await pool.end();
   }

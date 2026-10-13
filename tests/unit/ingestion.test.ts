@@ -10,8 +10,16 @@ describe('vehicle profile semantic content', () => {
   it('adds query language only to semantic content when source facts support it', () => {
     const profile = buildVehicleProfileContent('BRONCO SPORT', 2026, [
       {name: 'Tracción', valueText: '4x4', category: 'technical'},
-      {name: 'Selección G.O.A.T. Modes', valueText: 'Off-Road', category: 'technical'},
-      {name: 'Profundidad de Vadeo', valueText: '450 mm', category: 'technical'},
+      {
+        name: 'Selección G.O.A.T. Modes',
+        valueText: 'Off-Road',
+        category: 'technical',
+      },
+      {
+        name: 'Profundidad de Vadeo',
+        valueText: '450 mm',
+        category: 'technical',
+      },
       {name: 'Cajuela', valueText: '600 L', category: 'technical'},
       {name: 'Pasajeros', valueText: '5', category: 'technical'},
     ]);

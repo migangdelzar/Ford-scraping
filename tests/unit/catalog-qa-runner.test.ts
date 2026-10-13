@@ -108,10 +108,10 @@ describe('catalog QA runner helpers', () => {
 
   it('treats duplicate calls as a routing precision failure', () => {
     expect(
-      scoreCatalogQaToolRouting(['get_vehicle'], [
-        'get_vehicle',
-        'get_vehicle',
-      ]),
+      scoreCatalogQaToolRouting(
+        ['get_vehicle'],
+        ['get_vehicle', 'get_vehicle'],
+      ),
     ).toEqual({precision: 0.5, recall: 1, f1: 0.6667, exact: false});
   });
 });

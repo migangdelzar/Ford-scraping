@@ -63,7 +63,9 @@ export function buildDocuments(vehicle: VehicleAggregate): DocumentCandidate[] {
         `Ford ${vehicle.modelName} ${vehicle.modelYear}`,
         vehicle.category ? `Categoría ${vehicle.category}` : undefined,
         `${section}: ${text.trim()}`,
-      ].filter(Boolean).join('. '),
+      ]
+        .filter(Boolean)
+        .join('. '),
       modelName: vehicle.modelName,
       modelYear: vehicle.modelYear,
       metadata: {

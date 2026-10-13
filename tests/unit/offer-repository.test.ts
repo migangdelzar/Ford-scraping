@@ -42,11 +42,10 @@ describe('OfferRepository', () => {
       values: ['promotion', '2261'],
     });
     expect(client.release).toHaveBeenCalledOnce();
-    expect(calls.find(call => call.sql.includes('UPDATE ford.offers'))?.values?.slice(-4)).toEqual([
-      16,
-      3,
-      80,
-      12500,
-    ]);
+    expect(
+      calls
+        .find(call => call.sql.includes('UPDATE ford.offers'))
+        ?.values?.slice(-4),
+    ).toEqual([16, 3, 80, 12500]);
   });
 });

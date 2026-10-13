@@ -25,12 +25,17 @@ function getModelName(title: string): string {
 }
 
 function getModelNameFromUrl(url: string): string | undefined {
-  const slug = new URL(url).pathname.match(/^\/([^/]+)\/(?:20\d{2}|\d{2})\/?$/)?.[1];
+  const slug = new URL(url).pathname.match(
+    /^\/([^/]+)\/(?:20\d{2}|\d{2})\/?$/,
+  )?.[1];
   if (!slug) return undefined;
   return decodeURIComponent(slug)
     .split(/[-_]+/)
     .filter(Boolean)
-    .map(part => `${part[0].toLocaleUpperCase('es-MX')}${part.slice(1).toLocaleLowerCase('es-MX')}`)
+    .map(
+      part =>
+        `${part[0].toLocaleUpperCase('es-MX')}${part.slice(1).toLocaleLowerCase('es-MX')}`,
+    )
     .join(' ');
 }
 
@@ -86,9 +91,7 @@ export class ModelParser implements PageParser<VehicleCandidate> {
           .replace(/\s+/g, ' ')
           .trim();
         const externalId = input.attr('data-idvers')?.trim();
-        return name
-          ? {name, ...(externalId ? {externalId} : {})}
-          : undefined;
+        return name ? {name, ...(externalId ? {externalId} : {})} : undefined;
       })
       .get()
       .filter((variant): variant is {name: string; externalId?: string} =>

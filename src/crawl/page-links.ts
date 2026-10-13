@@ -20,18 +20,23 @@ export function extractPageLinks(
         return undefined;
       }
 
-      const isHttp = target.protocol === 'http:' || target.protocol === 'https:';
+      const isHttp =
+        target.protocol === 'http:' || target.protocol === 'https:';
       const internal = isHttp && target.hostname === source.hostname;
       const normalizedTargetUrl = isHttp
         ? normalizeUrl(target.toString(), source)
         : undefined;
-      const isComparisonRoute = /^\/.+\/(?:20\d{2}|\d{2})\/comparativo\/[^/]+\/?$/i.test(target.pathname);
+      const isComparisonRoute =
+        /^\/.+\/(?:20\d{2}|\d{2})\/comparativo\/[^/]+\/?$/i.test(
+          target.pathname,
+        );
       const hasColorSelector = [...target.searchParams.keys()].some(key =>
         ['exterior', 'interior'].includes(key.toLowerCase()),
       );
-      const storedHref = isHttp && isComparisonRoute && hasColorSelector
-        ? normalizedTargetUrl!
-        : href;
+      const storedHref =
+        isHttp && isComparisonRoute && hasColorSelector
+          ? normalizedTargetUrl!
+          : href;
       const linkType: PageLinkCandidate['linkType'] =
         target.protocol === 'mailto:'
           ? 'email'

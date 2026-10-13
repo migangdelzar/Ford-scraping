@@ -1,12 +1,19 @@
 import type {Pool} from 'pg';
-import type {StoredPage, VehicleComparisonCandidate} from '../domain/contracts.js';
+import type {
+  StoredPage,
+  VehicleComparisonCandidate,
+} from '../domain/contracts.js';
 import {normalizeModelKey} from '../domain/normalization.js';
 
 export class ComparisonRepository {
   constructor(private readonly pool: Pool) {}
 
-  async upsert(candidate: VehicleComparisonCandidate, page: StoredPage): Promise<{modelId: string; modelYearId: string; variantId: string}> {
-    if (!page.id) throw new Error('Comparison page must be stored before ingestion');
+  async upsert(
+    candidate: VehicleComparisonCandidate,
+    page: StoredPage,
+  ): Promise<{modelId: string; modelYearId: string; variantId: string}> {
+    if (!page.id)
+      throw new Error('Comparison page must be stored before ingestion');
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -17,7 +24,9 @@ export class ComparisonRepository {
         [normalizeModelKey(candidate.modelName), candidate.modelYear],
       );
       if (!modelYear.rowCount)
-        throw new Error(`Model year not found: ${candidate.modelName} ${candidate.modelYear}`);
+        throw new Error(
+          `Model year not found: ${candidate.modelName} ${candidate.modelYear}`,
+        );
       let variant = await client.query<{id: string}>(
         `SELECT id FROM ford.variants
          WHERE model_year_id = $1 AND normalized_name = $2`,
@@ -67,7 +76,10 @@ export class ComparisonRepository {
         ],
       );
       const comparisonId = parent.rows[0].id;
-      await client.query('DELETE FROM ford.comparison_attributes WHERE comparison_id = $1', [comparisonId]);
+      await client.query(
+        'DELETE FROM ford.comparison_attributes WHERE comparison_id = $1',
+        [comparisonId],
+      );
       for (const attribute of candidate.competitorAttributes) {
         await client.query(
           `INSERT INTO ford.comparison_attributes
@@ -112,7 +124,9 @@ export class ComparisonRepository {
         );
       }
       const sourcePrice = candidate.fordAttributes.find(
-        attribute => attribute.normalizedName === 'precio' && attribute.valueNumeric !== undefined,
+        attribute =>
+          attribute.normalizedName === 'precio' &&
+          attribute.valueNumeric !== undefined,
       );
       if (sourcePrice)
         await client.query(

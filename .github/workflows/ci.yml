@@ -33,10 +33,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -44,15 +44,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint (baseline debt)
+      - name: Lint
         run: npm run lint
-        continue-on-error: true
 
       - name: Build
         run: npm run build
 
       - name: Unit tests
         run: npm run test:unit
+
+      - name: Workflow and container contracts
+        run: node --test scripts/container-contract.test.mjs
 
       - name: API and MCP tests
         run: npm test -- --run tests/api tests/mcp
@@ -67,3 +69,71 @@ jobs:
         run: npm run test:integration
         env:
           FORD_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/ford_test
+
+  container:
+    name: Build and smoke test OCI runtimes
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Build the local CI image without publishing
+        run: docker build --pull --tag ford-scraping:ci .
+
+      - name: Smoke test the monthly scheduler command
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name ford-scheduler-smoke \
+            --network host \
+            --env DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/ford_test \
+            --env FORD_BASE_URL=https://www.forduruapan.mx \
+            --env SYNC_SCHEDULE='0 12 1 * *' \
+            --env SYNC_TIMEZONE=America/Mexico_City \
+            ford-scraping:ci
+          trap 'docker rm --force ford-scheduler-smoke >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if docker logs ford-scheduler-smoke 2>&1 | grep -Fq 'Scheduler active: 0 12 1 * * (America/Mexico_City)'; then
+              exit 0
+            fi
+            if [[ "$(docker inspect --format '{{.State.Running}}' ford-scheduler-smoke)" != true ]]; then
+              docker logs ford-scheduler-smoke
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs ford-scheduler-smoke
+          echo 'Scheduler did not report its configured monthly schedule.' >&2
+          exit 1
+
+      - name: Smoke test the protected MCP HTTP command
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name ford-mcp-smoke \
+            --network host \
+            --env DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/ford_test \
+            --env FORD_BASE_URL=https://www.forduruapan.mx \
+            --env MCP_HTTP_HOST=0.0.0.0 \
+            --env MCP_HTTP_PORT=3001 \
+            --env MCP_HTTP_BEARER_TOKEN=ci-smoke-token \
+            --env MCP_HTTP_ALLOWED_HOSTS=127.0.0.1,localhost \
+            ford-scraping:ci node dist/src/cli.js mcp-http
+          trap 'docker rm --force ford-mcp-smoke >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            http_code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              http://127.0.0.1:3001/mcp || true)"
+            if [[ "$http_code" == 401 ]]; then
+              exit 0
+            fi
+            if [[ "$(docker inspect --format '{{.State.Running}}' ford-mcp-smoke)" != true ]]; then
+              docker logs ford-mcp-smoke
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs ford-mcp-smoke
+          echo 'MCP HTTP endpoint did not return the expected unauthenticated 401.' >&2
+          exit 1

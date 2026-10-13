@@ -8,7 +8,11 @@ describe('extractPageLinks', () => {
       'https://www.forduruapan.mx/EXPEDITION/27/',
     );
 
-    expect(link.href).toBe('https://www.forduruapan.mx/EXPEDITION/27/Comparativo/KING-RANCH-MAX/');
-    expect(link.targetUrl).toBe('https://www.forduruapan.mx/EXPEDITION/27/Comparativo/KING-RANCH-MAX/');
+    expect(link.href).toBe(
+      'https://www.forduruapan.mx/EXPEDITION/27/Comparativo/KING-RANCH-MAX/',
+    );
+    expect(link.targetUrl).toBe(
+      'https://www.forduruapan.mx/EXPEDITION/27/Comparativo/KING-RANCH-MAX/',
+    );
   });
 });

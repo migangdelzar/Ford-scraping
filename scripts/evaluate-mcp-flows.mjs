@@ -96,62 +96,6 @@ const models = [
   ['TRANSIT PASAJEROS', 1075600],
   ['TRANSIT VAN', 1052600],
 ];
-const docByModelYearId = {
-  '39c77a40-f900-48ae-b948-bd3176823269':
-    '3493a111-1846-459d-9f44-d895a0dc205c',
-  'c75baaf4-1244-4387-bd1c-7b399037093d':
-    '1e84c944-3146-45c1-8a7e-b7bc706a7cbe',
-  'abda58aa-86f9-423d-a905-c01f9f962cc2':
-    'dcfbbc71-4daf-4244-991d-1691f1d57357',
-  'b276e19e-1b37-40a3-8d7f-f26fb5d030e8':
-    '27e0ca55-a24a-4f63-9f6b-e0b93551a690',
-  '204d8dba-b2b8-444a-9315-ce5cb8ba1401':
-    '325c60dd-264a-432a-90fc-fdeb39a0dbfe',
-  '7690a67b-5fe4-4fdf-b370-4e70f340e7b2':
-    '87166a0f-29ef-478b-bac4-ce2c36bba318',
-  '92a82412-69e3-4fb8-8258-8831157a9768':
-    '1f47d78e-4685-42e7-96ca-aa0a4dce8ca7',
-  'e11ae5eb-ace1-45e1-bece-228ca126c53f':
-    '30e8a150-6e29-4872-a20f-76af432ed345',
-  '45b7ab23-f0cc-4a0d-8c79-4c2bd199201c':
-    '351dbd97-3872-442f-9714-2c15313bcedb',
-  '0cab03d3-d1b8-40d5-a129-53d97da6d335':
-    '0f1c468f-9bbb-4f29-bb30-0631d2e68e8c',
-  'b368a668-39b6-41e8-b16e-13a4cbb8419c':
-    '37907b2e-fc67-486f-8505-1907faf31cb0',
-  '65dedafe-dd0f-42d2-a284-8f69d1329568':
-    '7f07051b-97eb-4b4a-ad92-c5f596ccde66',
-  '230bf8b2-10fe-4da3-81b7-c80f3fbf0203':
-    'a4089f24-7ace-48d9-98fa-5d194b38e9a9',
-  '0a77adaf-12d7-49ec-b5c6-8969c7377bee':
-    'd16aeaac-da18-4376-a60c-ff9b8cd905e7',
-  'cb1863b2-ed60-4440-9c2a-ae007aeae0be':
-    '86426222-2427-42c0-8cb7-5df389c2ef39',
-  '7276f1c8-0948-4891-a9f2-e9b257d2b234':
-    '39b9b20d-aacb-43e6-84a1-6829bedcb7f8',
-  '4efd3089-36b2-4041-8c7e-774ef5988ca0':
-    '6abba14c-c980-4a17-b7f7-5680179a1765',
-  'a602ae76-4f7a-409a-aa76-d3631824687d':
-    '03f3c9a8-26f0-4f21-9f55-1c8c76cdbf0f',
-  'ac82dc9b-8404-4bb4-af40-a5717468e5a0':
-    '5b280dfb-8a0c-4ad4-9eff-e6fcb36d55c1',
-  '4aa1221b-4b9d-42ba-8c77-e7d60d259364':
-    '07e8a35d-dc1c-46bf-a0e2-25222c030696',
-  'ff270524-13f1-4487-b464-655c63c39ab5':
-    '20c9b5a6-335a-471c-b217-29099a75f9fd',
-  '96c79669-8a2e-478e-a359-bb11b8a285ff':
-    '6a5c7b66-b2ab-4b69-8c6f-e8c789127378',
-  '90992ccc-f1cc-4ec2-a495-c047386d716c':
-    '4c2c520b-0978-4579-a500-71af646e1656',
-  '99f0d8b1-b219-484b-8adc-4a6cf519c49c':
-    '08732624-0c4f-4d56-8d35-a5b53ee8b10a',
-  'c4c8cddb-d85e-47b2-be59-271ba0480d14':
-    '1e3c0db1-4e41-4ae3-b879-903d366df1bb',
-  'bec069fc-a5cf-457a-8c69-3ca70d4ca7f7':
-    '455f63dd-6239-4e75-8f6d-e14cce9ebbbe',
-  '203eedef-4834-4403-97f5-8172b9045f46':
-    '213eaf6f-04df-4055-a518-1d65399513cf',
-};
 const profiles = Array.from({length: options.flows}, (_, i) => {
   const profileIndex = options.start + i;
   const [model, basePrice] = models[profileIndex % models.length];
@@ -259,9 +203,11 @@ async function simulate(profile) {
       r =>
         normalizeName(vehicleName(r)) === normalizeName(profile.model) &&
         vehicleYear(r) === 2026,
-    ) ??
-    rows[0];
-  if (!selected || normalizeName(vehicleName(selected)) !== normalizeName(profile.model))
+    ) ?? rows[0];
+  if (
+    !selected ||
+    normalizeName(vehicleName(selected)) !== normalizeName(profile.model)
+  )
     flags.targetNotInBudgetResults++;
   const detail = await invoke(
     'get_vehicle',
@@ -276,7 +222,12 @@ async function simulate(profile) {
     'search_offers',
     {
       query: `Financiamiento ${profile.model} 2026, enganche, mensualidad y tasa para ${profile.need}.`,
-      filters: {model: profile.model, modelYear: 2026, offerType: 'financing', activeOnly: true},
+      filters: {
+        model: profile.model,
+        modelYear: 2026,
+        offerType: 'financing',
+        activeOnly: true,
+      },
       limit: 5,
     },
     v => {
@@ -320,7 +271,11 @@ async function simulate(profile) {
       const rows = Array.isArray(v) ? v : v?.results;
       if (!Array.isArray(rows))
         throw Error('list_promotions results is not an array');
-      if (rows.some(o => o.offer_type === 'financing' || o.offerType === 'financing'))
+      if (
+        rows.some(
+          o => o.offer_type === 'financing' || o.offerType === 'financing',
+        )
+      )
         throw Error('financing record leaked into promotions');
       if (
         rows.some(

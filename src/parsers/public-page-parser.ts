@@ -120,15 +120,17 @@ function parseLivePromotionCard(
   const href = card.find('a[href]').first().attr('href');
   const vehicleUrl = href ? new URL(href, page.url) : undefined;
   const routeVehicle = vehicleUrl ? parseVehicleRoute(vehicleUrl) : undefined;
-  const modelName = routeVehicle?.modelName ??
-    sanitizeText(card.find('h3').first().text());
+  const modelName =
+    routeVehicle?.modelName ?? sanitizeText(card.find('h3').first().text());
   const title =
     card
       .find('.txt-promocion h4, .txt-promocion h2, .txt-promocion h3')
       .first()
       .text() ||
     `${modelName ?? 'Ford'} ${parseYear(promotionBody) ?? ''}`.trim();
-  const modelPageUrl = vehicleUrl ? toVehicleModelPageUrl(vehicleUrl) : undefined;
+  const modelPageUrl = vehicleUrl
+    ? toVehicleModelPageUrl(vehicleUrl)
+    : undefined;
   const dates = parseSpanishValidity(card.find('small').text() || card.text());
   const benefits = parsePromotionBenefits(promotionBody);
   const conditions = extractPromotionConditions(promotionBody);
@@ -170,16 +172,28 @@ function parseLivePromotionCard(
 function parsePromotionBenefits(text: string): Array<Record<string, unknown>> {
   const benefits: Array<Record<string, unknown>> = [];
   const insurance =
-    text.match(/[^.\n]*(?:primer\s+a[nñ]o|1\s*er\s+a[nñ]o)[^.\n]*seguro[^.\n]*(?:gratis|sin\s+costo|sin\s+costos)[^.\n]*/i) ??
-    text.match(/[^.\n]*seguro\s+sin\s+costo[^.\n]*(?:primer\s+a[nñ]o|1\s*er\s+a[nñ]o)[^.\n]*/i);
+    text.match(
+      /[^.\n]*(?:primer\s+a[nñ]o|1\s*er\s+a[nñ]o)[^.\n]*seguro[^.\n]*(?:gratis|sin\s+costo|sin\s+costos)[^.\n]*/i,
+    ) ??
+    text.match(
+      /[^.\n]*seguro\s+sin\s+costo[^.\n]*(?:primer\s+a[nñ]o|1\s*er\s+a[nñ]o)[^.\n]*/i,
+    );
   if (insurance)
-    benefits.push({type: 'free_insurance', durationYears: 1, sourceText: insurance[0].trim()});
-  const deferred = text.match(/[^.\n]*(?:primer\s+pago|primera\s+mensualidad)[^.\n]*(?:\d{1,3}\s+d[ií]as|\d{1,3}\s+meses)[^.\n]*/i);
+    benefits.push({
+      type: 'free_insurance',
+      durationYears: 1,
+      sourceText: insurance[0].trim(),
+    });
+  const deferred = text.match(
+    /[^.\n]*(?:primer\s+pago|primera\s+mensualidad)[^.\n]*(?:\d{1,3}\s+d[ií]as|\d{1,3}\s+meses)[^.\n]*/i,
+  );
   if (deferred) {
     const delay = deferred[0].match(/(\d{1,3})\s*(d[ií]as|meses)/i);
     benefits.push({
       type: 'deferred_first_payment',
-      ...(delay ? {delay: Number(delay[1]), delayUnit: normalizeSpanish(delay[2])} : {}),
+      ...(delay
+        ? {delay: Number(delay[1]), delayUnit: normalizeSpanish(delay[2])}
+        : {}),
       sourceText: deferred[0].trim(),
     });
   }
@@ -188,14 +202,18 @@ function parsePromotionBenefits(text: string): Array<Record<string, unknown>> {
 
 function extractPromotionConditions(text: string): string | undefined {
   const normalized = text.replace(/\s+/g, ' ').trim();
-  const anchors = /sujeto a an[aá]lisis de cr[eé]dito|sujeto a disponibilidad|no aplica(?: para)?|la diferencia en el costo del seguro|el bono puede ser aplicado|el bono debe aplicarse|aplica con la contrataci[oó]n|los recibos subsecuentes|aplican restricciones|aplican t[eé]rminos|consulta t[eé]rminos|consulta condiciones|no acumulable|hasta agotar existencias/gi;
+  const anchors =
+    /sujeto a an[aá]lisis de cr[eé]dito|sujeto a disponibilidad|no aplica(?: para)?|la diferencia en el costo del seguro|el bono puede ser aplicado|el bono debe aplicarse|aplica con la contrataci[oó]n|los recibos subsecuentes|aplican restricciones|aplican t[eé]rminos|consulta t[eé]rminos|consulta condiciones|no acumulable|hasta agotar existencias/gi;
   const starts = [...normalized.matchAll(anchors)].map(match => ({
     index: match.index ?? 0,
     text: match[0],
   }));
   const clauses = starts.map((start, index) => {
     const end = starts[index + 1]?.index ?? normalized.length;
-    return normalized.slice(start.index, end).trim().replace(/[\s.;]+$/g, '.');
+    return normalized
+      .slice(start.index, end)
+      .trim()
+      .replace(/[\s.;]+$/g, '.');
   });
   return clauses.length ? [...new Set(clauses)].join(' ') : undefined;
 }
@@ -211,7 +229,10 @@ function parseVehicleRoute(
   const modelName = decodeURIComponent(modelSlug)
     .split(/[-_]+/)
     .filter(Boolean)
-    .map(part => `${part[0].toLocaleUpperCase('es-MX')}${part.slice(1).toLocaleLowerCase('es-MX')}`)
+    .map(
+      part =>
+        `${part[0].toLocaleUpperCase('es-MX')}${part.slice(1).toLocaleLowerCase('es-MX')}`,
+    )
     .join(' ');
   const modelYear = Number(yearPart.length === 2 ? `20${yearPart}` : yearPart);
   return modelName && Number.isInteger(modelYear)
