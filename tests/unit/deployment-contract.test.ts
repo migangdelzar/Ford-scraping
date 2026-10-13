@@ -44,6 +44,9 @@ describe('CI workflow contract', () => {
     );
     expect(workflow).toMatch(/Run database migrations[\s\S]*npm run migrate/);
     expect(workflow).toMatch(
+      /name: Run database migrations[\s\S]*FORD_BASE_URL: https:\/\/www\.ford\.mx\//,
+    );
+    expect(workflow).toMatch(
       /name: Run integration tests[\s\S]*npm run test:integration/,
     );
   });
