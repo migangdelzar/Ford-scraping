@@ -28,3 +28,18 @@ Vector input comes from `ford.documents.semantic_content`; `content` remains the
 ## MCP
 
 The local MCP command uses stdio through the official TypeScript SDK. MCP tools are read-only adapters over shared services. Vehicle detail links come from model-page sources attached to stored variants; trim comparison links come from stored comparison records. `compare_trims` compares exact trims within one model-year and excludes malformed yes/no values for quantitative fields. `compare_model_years` reports price changes and only compares differing single-valued facts, leaving grouped or placeholder facts out of deltas. `compare_vehicles` handles multiple Ford nameplates or powertrain variants. `get_variant_comparisons` returns source-published Ford-versus-competitor tables with `paired_facts`; mismatched source rows remain under `excluded_source_rows` with warnings. Missing data remains unknown; it is never treated as a feature removal.
+
+## Production runtime secrets
+
+Production containers can use `FORD_SECRETS_PROVIDER=oci-vault`. In that mode the process obtains OCI Instance Principal credentials on the VM and reads current secret values at startup. GitHub Actions passes only the nonsecret Vault secret OCIDs into the protected deployment; secret values are not sent through the runner. The default `environment` provider preserves local development and does not contact OCI.
+
+Ford MCP on emme-2 needs these production environment variables:
+
+| GitHub production variable | Vault secret |
+| --- | --- |
+| `FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD` | `ford-prod-postgres-password` |
+| `FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN` | `ford-prod-mcp-http-bearer-token` |
+
+Both references must be OCI Vault secret OCIDs, and the emme-2 instance principal must have `read secret-bundles` access scoped to those names in the configured Vault. Configure the variables in the Ford-scraping `production` environment; do not place secret contents in GitHub variables or the MCP `.env` file. MCP HTTP resolves the bearer token and database password; the monthly scheduler resolves only the database password. Missing mappings, denied access, or an unsupported secret payload stops startup with a value-free error.
+
+Before enabling `RUNTIME_VAULT_READY`, verify the imported emme-2 dynamic group and least-privilege policy, populate both GitHub production variables, then use the deployment preflight and a protected candidate deployment to verify startup, backup, migration, protocol smoke, and rollback. Keep `PRODUCTION_DEPLOY_ENABLED` and `RUNTIME_VAULT_READY` unset until that verification is complete.

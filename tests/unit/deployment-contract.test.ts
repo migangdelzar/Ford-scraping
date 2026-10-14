@@ -163,5 +163,22 @@ describe('MCP release workflow contract', () => {
     expect(workflow).toContain("vars.RUNTIME_VAULT_READY == 'true'");
     expect(workflow).toContain('environment: production');
     expect(workflow).not.toContain('continue-on-error: true');
+    expect(workflow).toContain(
+      'migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@7c9eb649e4ffb83ac9ed2a7037c6fc2281f747c2',
+    );
+  });
+
+  it('passes runtime Vault configuration to the deployment action', () => {
+    const workflow = readFileSync(releaseWorkflowPath, 'utf8');
+
+    expect(workflow).toContain(
+      'FORD_SECRETS_PROVIDER: ${{ vars.FORD_SECRETS_PROVIDER }}',
+    );
+    expect(workflow).toContain(
+      'FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}',
+    );
+    expect(workflow).toContain(
+      'FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}',
+    );
   });
 });
