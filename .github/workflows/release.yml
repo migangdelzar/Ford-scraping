@@ -1,4 +1,5 @@
 name: Release MCP to OCI
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Release MCP to OCI [{0}] {1}', inputs.release_request_id || 'manual', inputs.source_sha || 'unspecified') || 'Release MCP to OCI' }}
 
 on:
   workflow_run:
@@ -15,6 +16,10 @@ on:
         options: [validate, deploy, rollback]
       source_sha:
         description: Full 40-character SHA with successful CI on main (deploy only).
+        required: false
+        type: string
+      release_request_id:
+        description: Coordinator correlation ID used to track release-all requests.
         required: false
         type: string
 
