@@ -246,7 +246,7 @@ jobs:
       packages: read
     steps:
       - name: Deploy using the shared OCI action
-        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@f8112024deea512ffebe8a7b49df531a29dad027
+        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@8e32aec3eabf8207c47c7a601d8d32735f7c0b37
         with:
           target: ford-mcp
           operation: ${{ needs.verify.outputs.operation }}
