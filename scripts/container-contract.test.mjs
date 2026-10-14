@@ -41,6 +41,19 @@ test('CI builds the app image and starts both production commands', async () => 
   assert.doesNotMatch(workflow, /docker\/login-action/);
 });
 
+test('CI verifies authenticated MCP initialization and tool listing in the container', async () => {
+  const workflow = await read('.github/workflows/ci.yml');
+
+  assert.match(
+    workflow,
+    /docker exec -i ford-mcp-smoke node --input-type=module/,
+  );
+  assert.match(workflow, /method: 'initialize'/);
+  assert.match(workflow, /method: 'notifications\/initialized'/);
+  assert.match(workflow, /method: 'tools\/list'/);
+  assert.match(workflow, /search_vehicles/);
+});
+
 test('manual release publishes and scans the verified source image by digest', async () => {
   const workflow = await read('.github/workflows/release.yml');
 

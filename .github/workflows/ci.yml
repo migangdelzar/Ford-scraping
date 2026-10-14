@@ -122,11 +122,13 @@ jobs:
             --env MCP_HTTP_ALLOWED_HOSTS=127.0.0.1,localhost \
             ford-scraping:ci node dist/src/cli.js mcp-http
           trap 'docker rm --force ford-mcp-smoke >/dev/null 2>&1 || true' EXIT
+          ready=false
           for attempt in $(seq 1 30); do
             http_code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
               http://127.0.0.1:3001/mcp || true)"
             if [[ "$http_code" == 401 ]]; then
-              exit 0
+              ready=true
+              break
             fi
             if [[ "$(docker inspect --format '{{.State.Running}}' ford-mcp-smoke)" != true ]]; then
               docker logs ford-mcp-smoke
@@ -134,6 +136,64 @@ jobs:
             fi
             sleep 2
           done
-          docker logs ford-mcp-smoke
-          echo 'MCP HTTP endpoint did not return the expected unauthenticated 401.' >&2
-          exit 1
+          if [[ "$ready" != true ]]; then
+            docker logs ford-mcp-smoke
+            echo 'MCP HTTP endpoint did not return the expected unauthenticated 401.' >&2
+            exit 1
+          fi
+
+          docker exec -i ford-mcp-smoke node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+
+          const endpoint = 'http://127.0.0.1:3001/mcp';
+          const token = 'ci-smoke-token';
+          let sessionId;
+
+          async function send(message) {
+            const headers = {
+              accept: 'application/json, text/event-stream',
+              authorization: `Bearer ${token}`,
+              'content-type': 'application/json',
+            };
+            if (sessionId) headers['mcp-session-id'] = sessionId;
+
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(message),
+            });
+            assert.ok(response.ok, `MCP request failed with HTTP ${response.status}`);
+            sessionId ??= response.headers.get('mcp-session-id') ?? undefined;
+
+            const body = await response.text();
+            if (!body) return [];
+            if (response.headers.get('content-type')?.includes('text/event-stream')) {
+              return body
+                .split(/\r?\n/)
+                .filter(line => line.startsWith('data: '))
+                .map(line => JSON.parse(line.slice('data: '.length)));
+            }
+            return [JSON.parse(body)];
+          }
+
+          const initialized = await send({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+              protocolVersion: '2025-11-25',
+              capabilities: {},
+              clientInfo: {name: 'github-actions-smoke', version: '1.0.0'},
+            },
+          });
+          const initialization = initialized.find(message => message.id === 1)?.result;
+          assert.equal(initialization?.serverInfo?.name, 'ford-uruapan-hybrid-search');
+
+          await send({jsonrpc: '2.0', method: 'notifications/initialized'});
+          const listed = await send({jsonrpc: '2.0', id: 2, method: 'tools/list'});
+          const tools = listed.find(message => message.id === 2)?.result?.tools ?? [];
+          const toolNames = new Set(tools.map(tool => tool.name));
+          assert.ok(toolNames.has('search_vehicles'), 'search_vehicles tool is missing');
+          assert.ok(toolNames.has('get_catalog_status'), 'get_catalog_status tool is missing');
+          console.log('MCP container initialization and tool listing passed.');
+          NODE
