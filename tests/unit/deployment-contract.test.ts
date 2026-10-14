@@ -104,24 +104,23 @@ describe('MCP release workflow contract', () => {
     expect(workflow).toContain('^[0-9a-f]{40}$');
   });
 
-  it('builds and scans an immutable ARM64 image only after main CI succeeds', () => {
+  it('publishes a scanned immutable ARM64 image from the exact tagged CI source', () => {
     const workflow = readFileSync(releaseWorkflowPath, 'utf8');
 
-    expect(workflow).toContain('workflows: [CI]');
-    expect(workflow).toContain("github.event.workflow_run.event == 'push'");
-    expect(workflow).toContain(
-      'WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}',
-    );
+    expect(workflow).not.toContain('workflow_run:');
+    expect(workflow).toContain('version:');
+    expect(workflow).toContain('INPUT_VERSION');
+    expect(workflow).toContain('git cat-file -t');
+    expect(workflow).toContain('git merge-base --is-ancestor');
     expect(workflow).toContain('actions/workflows/ci.yml/runs?');
     expect(workflow).toContain('head_sha=${source_sha}');
+    expect(workflow).toContain('.head_branch == $version');
     expect(workflow).toContain('platforms: linux/arm64');
     expect(workflow).toContain('input: /tmp/ford-scraping.tar');
     expect(workflow).toContain(
       'outputs: type=docker,dest=/tmp/ford-scraping.tar',
     );
-    expect(workflow).toContain(
-      'IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}',
-    );
+    expect(workflow).toContain('digest: ${{ steps.publish.outputs.digest }}');
     expect(workflow.indexOf('name: Scan image')).toBeLessThan(
       workflow.indexOf('name: Log in to GHCR'),
     );
@@ -130,6 +129,9 @@ describe('MCP release workflow contract', () => {
     expect(workflow).toContain('anchore/sbom-action@v0.20.0');
     expect(workflow).toContain('actions/attest-build-provenance@v2');
     expect(workflow).toContain('actions/cache@v4');
+    expect(workflow).toContain('--source-ref "refs/tags/${VERSION}"');
+    expect(workflow).toContain('--source-digest "${SOURCE_SHA}"');
+    expect(workflow).toContain('name: ford-release-result');
   });
 
   it('pins the public OCI action and keeps production behind both readiness gates', () => {
