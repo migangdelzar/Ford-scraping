@@ -44,7 +44,10 @@ test('CI builds the app image and starts both production commands', async () => 
 test('CI verifies authenticated MCP initialization and tool listing in the container', async () => {
   const workflow = await read('.github/workflows/ci.yml');
 
-  assert.match(workflow, /docker exec -i ford-mcp-smoke node --input-type=module/);
+  assert.match(
+    workflow,
+    /docker exec -i ford-mcp-smoke node --input-type=module/,
+  );
   assert.match(workflow, /method: 'initialize'/);
   assert.match(workflow, /method: 'notifications\/initialized'/);
   assert.match(workflow, /method: 'tools\/list'/);
