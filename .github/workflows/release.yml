@@ -110,154 +110,54 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
   image:
-    name: Build and scan immutable MCP image
+    name: Resolve immutable MCP image published by tagged CI
     if: needs.verify.result == 'success' && needs.verify.outputs.operation == 'deploy'
     needs: verify
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 15
     permissions:
       contents: read
-      packages: write
-      security-events: write
-      id-token: write
-      attestations: write
+      packages: read
     outputs:
       image: ${{ steps.image.outputs.image }}
-      digest: ${{ steps.publish.outputs.digest }}
+      digest: ${{ steps.image.outputs.digest }}
     steps:
-      - name: Check out verified source
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.verify.outputs.source_sha }}
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Set up ARM64 emulation
-        uses: docker/setup-qemu-action@v3
-      - name: Set up image build cache
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: scraping-arm64-${{ needs.verify.outputs.source_sha }}
-          restore-keys: scraping-arm64-
       - name: Normalize GHCR image name
         id: image-name
         env:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - name: Build image archive for scanning
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          tags: ${{ steps.image-name.outputs.name }}:sha-${{ needs.verify.outputs.source_sha }}
-          platforms: linux/arm64
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-          outputs: type=docker,dest=/tmp/ford-scraping.tar
-          provenance: false
-          sbom: false
-      - name: Rotate image build cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-      - name: Scan image
-        id: scan
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          input: /tmp/ford-scraping.tar
-          format: sarif
-          output: trivy-image.sarif
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          scanners: vuln
-          limit-severities-for-sarif: true
-          exit-code: '1'
-      - name: Upload image scan report
-        if: always() && hashFiles('trivy-image.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-image.sarif
-      - name: Log in to GHCR after the image passes its scan
+      - name: Log in to GHCR to resolve the tagged CI image
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Load and publish the scanned image
-        id: publish
-        env:
-          IMAGE_REPOSITORY: ${{ steps.image-name.outputs.name }}
-          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
-          VERSION: ${{ needs.verify.outputs.version }}
-        run: |
-          set -euo pipefail
-          docker load --input /tmp/ford-scraping.tar
-          sha_tag="${IMAGE_REPOSITORY}:sha-${SOURCE_SHA}"
-          version_tag="${IMAGE_REPOSITORY}:${VERSION}"
-          plain_version_tag="${IMAGE_REPOSITORY}:${VERSION#v}"
-          for tag in "${version_tag}" "${plain_version_tag}"; do
-            if docker buildx imagetools inspect "${tag}" >/dev/null 2>&1; then
-              echo "Version image alias already exists: ${tag}" >&2
-              exit 1
-            fi
-          done
-          docker push "${sha_tag}" | tee /tmp/docker-push.log
-          docker tag "${sha_tag}" "${version_tag}"
-          docker tag "${sha_tag}" "${plain_version_tag}"
-          docker push "${version_tag}"
-          docker push "${plain_version_tag}"
-          digest="$(sed -n 's/^.*digest: \(sha256:[0-9a-f]*\).*$/\1/p' /tmp/docker-push.log | tail -1)"
-          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
-            echo 'Could not resolve published image digest.' >&2
-            exit 1
-          }
-          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-      - name: Expose immutable image digest
+      - name: Resolve and verify image published by tagged CI
         id: image
         env:
           IMAGE_REPOSITORY: ${{ steps.image-name.outputs.name }}
-          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
-        run: echo "image=${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
-      - name: Generate image SBOM
-        uses: anchore/sbom-action@v0.20.0
-        with:
-          image: ${{ steps.image-name.outputs.name }}:sha-${{ needs.verify.outputs.source_sha }}
-          format: cyclonedx-json
-          output-file: ford-scraping-sbom.cdx.json
-          artifact-name: ford-scraping-sbom-${{ needs.verify.outputs.source_sha }}.cdx.json
-      - name: Attest image provenance
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-name: ${{ steps.image-name.outputs.name }}
-          subject-digest: ${{ steps.publish.outputs.digest }}
-          push-to-registry: true
-      - name: Verify published image provenance
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IMAGE: ${{ steps.image.outputs.image }}
           SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
           VERSION: ${{ needs.verify.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          gh attestation verify "oci://${IMAGE}" \
+          set -euo pipefail
+          tagged_image="${IMAGE_REPOSITORY}:${VERSION}"
+          docker pull "${tagged_image}" >/dev/null
+          digest_reference="$(docker image inspect --format '{{index .RepoDigests 0}}' "${tagged_image}")"
+          [[ "${digest_reference}" =~ ^ghcr\.io/[A-Za-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]] || {
+            echo 'Published MCP image did not resolve to an immutable digest.' >&2
+            exit 1
+          }
+          gh attestation verify "oci://${digest_reference}" \
+            --bundle-from-oci \
             --repo "${GITHUB_REPOSITORY}" \
             --source-ref "refs/tags/${VERSION}" \
             --source-digest "${SOURCE_SHA}" \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
-      - name: Summarize immutable scraper release
-        env:
-          IMAGE: ${{ steps.image.outputs.image }}
-          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
-          VERSION: ${{ needs.verify.outputs.version }}
-        run: |
-          {
-            echo '### Ford-scraping container'
-            echo "- Version: ${VERSION}"
-            echo "- Source: ${SOURCE_SHA}"
-            echo "- Immutable image: ${IMAGE}"
-            echo '- Vulnerability scan: passed'
-            echo '- SBOM and build provenance: verified'
-          } >> "$GITHUB_STEP_SUMMARY"
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/ci.yml"
+          digest="${digest_reference##*@}"
+          echo "image=${digest_reference}" >> "$GITHUB_OUTPUT"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy or roll back Ford MCP
