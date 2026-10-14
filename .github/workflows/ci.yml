@@ -197,3 +197,176 @@ jobs:
           assert.ok(toolNames.has('get_catalog_status'), 'get_catalog_status tool is missing');
           console.log('MCP container initialization and tool listing passed.');
           NODE
+
+  publish:
+    name: Publish versioned MCP image
+    if: >-
+      github.event_name == 'push' && github.ref_type == 'tag' &&
+      startsWith(github.ref, 'refs/tags/v')
+    needs: [test, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out the verified tag source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify immutable SemVer tag is on main
+        env:
+          VERSION: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "${VERSION}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo 'Release version must use vMAJOR.MINOR.PATCH.' >&2
+            exit 1
+          }
+          [[ "$(git cat-file -t "refs/tags/${VERSION}")" == tag ]] || {
+            echo 'Release version must be an annotated tag.' >&2
+            exit 1
+          }
+          [[ "$(git rev-parse "refs/tags/${VERSION}^{commit}")" == "${SOURCE_SHA}" ]] || {
+            echo 'Release tag target does not match the workflow source SHA.' >&2
+            exit 1
+          }
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "${SOURCE_SHA}" refs/remotes/origin/main || {
+            echo 'Release tag target is not reachable from main.' >&2
+            exit 1
+          }
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up ARM64 emulation
+        uses: docker/setup-qemu-action@v3
+
+      - name: Normalize GHCR image name
+        id: image-name
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Build ARM64 image archive for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          tags: ${{ steps.image-name.outputs.name }}:sha-${{ github.sha }}
+          platforms: linux/arm64
+          outputs: type=docker,dest=/tmp/ford-scraping.tar
+          provenance: false
+          sbom: false
+
+      - name: Scan versioned image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          input: /tmp/ford-scraping.tar
+          format: sarif
+          output: trivy-image.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          scanners: vuln
+          limit-severities-for-sarif: true
+          exit-code: '1'
+
+      - name: Upload versioned image scan report
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-image.sarif
+
+      - name: Log in to GHCR after the image passes its scan
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Publish scanned versioned image
+        id: publish
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image-name.outputs.name }}
+          SOURCE_SHA: ${{ github.sha }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          docker load --input /tmp/ford-scraping.tar
+          sha_tag="${IMAGE_REPOSITORY}:sha-${SOURCE_SHA}"
+          version_tag="${IMAGE_REPOSITORY}:${VERSION}"
+          plain_version_tag="${IMAGE_REPOSITORY}:${VERSION#v}"
+          for tag in "${version_tag}" "${plain_version_tag}"; do
+            if docker buildx imagetools inspect "${tag}" >/dev/null 2>&1; then
+              echo "Version image alias already exists: ${tag}" >&2
+              exit 1
+            fi
+          done
+          docker push "${sha_tag}" | tee "$RUNNER_TEMP/docker-push.log"
+          docker tag "${sha_tag}" "${version_tag}"
+          docker tag "${sha_tag}" "${plain_version_tag}"
+          docker push "${version_tag}"
+          docker push "${plain_version_tag}"
+          digest="$(sed -n 's/^.*digest: \(sha256:[0-9a-f]*\).*$/\1/p' "$RUNNER_TEMP/docker-push.log" | tail -1)"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo 'Could not resolve published image digest.' >&2
+            exit 1
+          }
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Expose immutable image reference
+        id: image
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image-name.outputs.name }}
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: echo "image=${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate versioned image SBOM
+        uses: anchore/sbom-action@v0.20.0
+        with:
+          image: ${{ steps.image-name.outputs.name }}:sha-${{ github.sha }}
+          format: cyclonedx-json
+          output-file: ford-scraping-sbom.cdx.json
+          artifact-name: ford-scraping-sbom-${{ github.sha }}.cdx.json
+
+      - name: Attest versioned image provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ steps.image-name.outputs.name }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+      - name: Verify versioned image provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ steps.image.outputs.image }}
+          SOURCE_SHA: ${{ github.sha }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          gh attestation verify "oci://${IMAGE}" \
+            --bundle-from-oci \
+            --repo "${GITHUB_REPOSITORY}" \
+            --source-ref "refs/tags/${VERSION}" \
+            --source-digest "${SOURCE_SHA}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/ci.yml"
+
+      - name: Summarize immutable MCP release
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          SOURCE_SHA: ${{ github.sha }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          {
+            echo '### Ford-scraping MCP container'
+            echo "- Version: ${VERSION}"
+            echo "- Source: ${SOURCE_SHA}"
+            echo "- Immutable image: ${IMAGE}"
+            echo '- Vulnerability scan: passed'
+            echo '- SBOM and tag-bound build provenance: verified'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -69,7 +69,7 @@ describe('CI workflow contract', () => {
   });
 
   it('does not publish or deploy', () => {
-    const workflow = readFileSync(workflowPath, 'utf8');
+    const workflow = readFileSync(workflowPath, 'utf8').split('  publish:')[0];
 
     expect(workflow).not.toMatch(/docker\s+push|npm\s+publish/i);
     expect(workflow).not.toMatch(/uses:\s+[^\n]*(?:release|deploy)/i);
@@ -104,34 +104,53 @@ describe('MCP release workflow contract', () => {
     expect(workflow).toContain('^[0-9a-f]{40}$');
   });
 
-  it('publishes a scanned immutable ARM64 image from the exact tagged CI source', () => {
-    const workflow = readFileSync(releaseWorkflowPath, 'utf8');
+  it('publishes and attests an ARM64 image from the exact CI-verified tag', () => {
+    const workflow = readFileSync(workflowPath, 'utf8');
+    const releaseWorkflow = readFileSync(releaseWorkflowPath, 'utf8');
+    const publishWorkflow = workflow.slice(workflow.indexOf('  publish:'));
 
-    expect(workflow).not.toContain('workflow_run:');
-    expect(workflow).toContain('version:');
-    expect(workflow).toContain('INPUT_VERSION');
+    expect(workflow).toContain('name: Publish versioned MCP image');
+    expect(workflow).toContain('needs: [test, container]');
+    expect(workflow).toContain("github.event_name == 'push'");
+    expect(workflow).toContain("github.ref_type == 'tag'");
     expect(workflow).toContain('git cat-file -t');
     expect(workflow).toContain('git merge-base --is-ancestor');
-    expect(workflow).toContain('actions/workflows/ci.yml/runs?');
-    expect(workflow).toContain('head_sha=${source_sha}');
-    expect(workflow).toContain('.head_branch == $version');
-    expect(workflow).toContain('platforms: linux/arm64');
-    expect(workflow).toContain('input: /tmp/ford-scraping.tar');
-    expect(workflow).toContain(
+    expect(publishWorkflow).toContain('platforms: linux/arm64');
+    expect(publishWorkflow).toContain('input: /tmp/ford-scraping.tar');
+    expect(publishWorkflow).toContain(
       'outputs: type=docker,dest=/tmp/ford-scraping.tar',
     );
-    expect(workflow).toContain('digest: ${{ steps.publish.outputs.digest }}');
-    expect(workflow.indexOf('name: Scan image')).toBeLessThan(
-      workflow.indexOf('name: Log in to GHCR'),
+    expect(publishWorkflow).toContain(
+      'digest: ${{ steps.publish.outputs.digest }}',
     );
-    expect(workflow).toContain('image=${IMAGE_REPOSITORY}@${IMAGE_DIGEST}');
-    expect(workflow).toContain('limit-severities-for-sarif: true');
-    expect(workflow).toContain('anchore/sbom-action@v0.20.0');
-    expect(workflow).toContain('actions/attest-build-provenance@v2');
-    expect(workflow).toContain('actions/cache@v4');
-    expect(workflow).toContain('--source-ref "refs/tags/${VERSION}"');
-    expect(workflow).toContain('--source-digest "${SOURCE_SHA}"');
-    expect(workflow).toContain('name: ford-release-result');
+    expect(publishWorkflow.indexOf('name: Scan versioned image')).toBeLessThan(
+      publishWorkflow.indexOf(
+        'name: Log in to GHCR after the image passes its scan',
+      ),
+    );
+    expect(publishWorkflow).toContain(
+      'image=${IMAGE_REPOSITORY}@${IMAGE_DIGEST}',
+    );
+    expect(publishWorkflow).toContain('limit-severities-for-sarif: true');
+    expect(publishWorkflow).toContain('anchore/sbom-action@v0.20.0');
+    expect(publishWorkflow).toContain('actions/attest-build-provenance@v2');
+    expect(publishWorkflow).toContain('--source-ref "refs/tags/${VERSION}"');
+    expect(publishWorkflow).toContain('--source-digest "${SOURCE_SHA}"');
+    expect(publishWorkflow).toContain('--bundle-from-oci');
+    expect(publishWorkflow).toContain(
+      'name: ford-scraping-sbom-${{ github.sha }}.cdx.json',
+    );
+
+    expect(releaseWorkflow).toContain(
+      'name: Resolve immutable MCP image published by tagged CI',
+    );
+    expect(releaseWorkflow).toContain('docker pull "${tagged_image}"');
+    expect(releaseWorkflow).toContain(
+      'digest: ${{ steps.image.outputs.digest }}',
+    );
+    expect(releaseWorkflow).toContain('name: ford-release-result');
+    expect(releaseWorkflow).not.toContain('docker/build-push-action');
+    expect(releaseWorkflow).not.toContain('docker push');
   });
 
   it('pins the public OCI action and keeps production behind both readiness gates', () => {

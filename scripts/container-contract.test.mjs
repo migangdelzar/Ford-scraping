@@ -38,7 +38,10 @@ test('CI builds the app image and starts both production commands', async () => 
   assert.match(workflow, /MCP_HTTP_BEARER_TOKEN/);
   assert.match(workflow, /http_code="\$\(curl/);
   assert.match(workflow, /\/mcp/);
-  assert.doesNotMatch(workflow, /docker\/login-action/);
+  assert.doesNotMatch(
+    workflow.split('name: Publish versioned MCP image')[0],
+    /docker\/login-action/,
+  );
 });
 
 test('CI verifies authenticated MCP initialization and tool listing in the container', async () => {
@@ -54,7 +57,44 @@ test('CI verifies authenticated MCP initialization and tool listing in the conta
   assert.match(workflow, /search_vehicles/);
 });
 
-test('versioned release publishes only an immutable SemVer tag after verifying tagged CI', async () => {
+test('version-tagged CI publishes only after tests and container smoke pass, then verifies tag provenance', async () => {
+  const workflow = await read('.github/workflows/ci.yml');
+  const publishIndex = workflow.indexOf('name: Publish versioned MCP image');
+  const scanIndex = workflow.indexOf('name: Scan versioned image');
+  const loginIndex = workflow.indexOf(
+    'name: Log in to GHCR after the image passes its scan',
+  );
+  const pushIndex = workflow.indexOf('name: Publish scanned versioned image');
+  const attestIndex = workflow.indexOf(
+    'name: Attest versioned image provenance',
+  );
+  const verifyIndex = workflow.indexOf(
+    'name: Verify versioned image provenance',
+  );
+
+  assert.ok(publishIndex >= 0, 'tagged CI must publish the MCP image');
+  assert.match(workflow, /needs: \[test, container\]/);
+  assert.match(
+    workflow,
+    /github\.event_name == 'push'[\s\S]*?github\.ref_type == 'tag'[\s\S]*?refs\/tags\/v/,
+  );
+  assert.ok(
+    scanIndex > publishIndex &&
+      loginIndex > scanIndex &&
+      pushIndex > loginIndex,
+  );
+  assert.ok(attestIndex > pushIndex && verifyIndex > attestIndex);
+  assert.match(workflow, /exit-code: '1'/);
+  assert.match(workflow, /--bundle-from-oci/);
+  assert.match(workflow, /--source-ref "refs\/tags\/\$\{VERSION\}"/);
+  assert.match(workflow, /--source-digest "\$\{SOURCE_SHA\}"/);
+  assert.match(
+    workflow,
+    /--signer-workflow "\$\{GITHUB_REPOSITORY\}\/\.github\/workflows\/ci\.yml"/,
+  );
+});
+
+test('manual MCP release resolves only the immutable image published by tagged CI', async () => {
   const workflow = await read('.github/workflows/release.yml');
 
   assert.match(workflow, /version:/);
@@ -63,62 +103,46 @@ test('versioned release publishes only an immutable SemVer tag after verifying t
   assert.match(workflow, /git cat-file -t/);
   assert.match(workflow, /git merge-base --is-ancestor/);
   assert.match(workflow, /\.head_branch == \$version/);
-  assert.match(workflow, /--source-ref "refs\/tags\/\$\{VERSION\}"/);
-  assert.match(workflow, /--source-digest "\$\{SOURCE_SHA\}"/);
   assert.match(workflow, /REQUESTED_SHA: \$\{\{ inputs\.source_sha \}\}/);
   assert.doesNotMatch(workflow, /workflow_run:/);
-  assert.match(workflow, /platforms: linux\/arm64/);
-  assert.match(workflow, /sha-\$\{\{ needs\.verify\.outputs\.source_sha \}\}/);
-  assert.match(workflow, /aquasecurity\/trivy-action/);
-  assert.match(workflow, /input: \/tmp\/ford-scraping\.tar/);
-  assert.match(workflow, /outputs: type=docker,dest=\/tmp\/ford-scraping\.tar/);
-  assert.ok(
-    workflow.indexOf('name: Scan image') <
-      workflow.indexOf('name: Log in to GHCR'),
-    'the image must pass its scan before registry login and publication',
+  assert.match(
+    workflow,
+    /name: Resolve immutable MCP image published by tagged CI/,
   );
-  assert.match(workflow, /docker push "\$\{sha_tag\}"/);
-  assert.match(workflow, /docker push "\$\{version_tag\}"/);
-  assert.doesNotMatch(workflow, /push: true/);
-  assert.match(workflow, /anchore\/sbom-action/);
-  assert.match(workflow, /actions\/attest-build-provenance/);
-  assert.match(workflow, /cache-to: type=local/);
+  assert.match(workflow, /docker pull "\$\{tagged_image\}"/);
+  assert.match(workflow, /docker image inspect/);
+  assert.match(workflow, /--bundle-from-oci/);
+  assert.match(workflow, /--source-ref "refs\/tags\/\$\{VERSION\}"/);
+  assert.match(workflow, /--source-digest "\$\{SOURCE_SHA\}"/);
+  assert.match(
+    workflow,
+    /--signer-workflow "\$\{GITHUB_REPOSITORY\}\/\.github\/workflows\/ci\.yml"/,
+  );
+  assert.doesNotMatch(workflow, /docker\/build-push-action/);
+  assert.doesNotMatch(workflow, /aquasecurity\/trivy-action/);
+  assert.doesNotMatch(workflow, /docker push/);
   assert.match(
     workflow,
     /Ford-oci-deployment-action.*@8e32aec3eabf8207c47c7a601d8d32735f7c0b37/,
   );
-  assert.match(workflow, /exit-code: '1'/);
   assert.match(workflow, /target: ford-mcp/);
 });
 
-test('manual release verifies the published image provenance from the release workflow', async () => {
+test('manual MCP release accepts only tagged-CI provenance for its source and image', async () => {
   const workflow = await read('.github/workflows/release.yml');
+  const ci = await read('.github/workflows/ci.yml');
 
-  const attestIndex = workflow.indexOf('name: Attest image provenance');
-  const verifyIndex = workflow.indexOf(
-    'name: Verify published image provenance',
-  );
-  const summaryIndex = workflow.indexOf(
-    'name: Summarize immutable scraper release',
-  );
-
-  assert.ok(attestIndex >= 0, 'the image must be attested');
-  assert.ok(
-    verifyIndex > attestIndex,
-    'verify only after the registry attestation exists',
-  );
-  assert.ok(
-    summaryIndex > verifyIndex,
-    'release cannot pass before provenance verification',
-  );
-  assert.match(workflow, /gh attestation verify "oci:\/\/\$\{IMAGE\}"/);
-  assert.match(workflow, /--repo "\$\{GITHUB_REPOSITORY\}"/);
+  assert.match(ci, /gh attestation verify "oci:\/\/\$\{IMAGE\}"/);
+  assert.match(ci, /--bundle-from-oci/);
+  assert.match(ci, /--repo "\$\{GITHUB_REPOSITORY\}"/);
+  assert.match(ci, /--source-ref "refs\/tags\/\$\{VERSION\}"/);
+  assert.match(ci, /--source-digest "\$\{SOURCE_SHA\}"/);
   assert.match(
-    workflow,
-    /--signer-workflow "\$\{GITHUB_REPOSITORY\}\/\.github\/workflows\/release\.yml"/,
+    ci,
+    /--signer-workflow "\$\{GITHUB_REPOSITORY\}\/\.github\/workflows\/ci\.yml"/,
   );
-  assert.match(workflow, /IMAGE: \$\{\{ steps\.image\.outputs\.image \}\}/);
-  assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.match(workflow, /needs\.image\.outputs\.image/);
+  assert.match(ci, /GH_TOKEN: \$\{\{ github\.token \}\}/);
 });
 
 test('main CI does not publish or deploy automatically', async () => {
