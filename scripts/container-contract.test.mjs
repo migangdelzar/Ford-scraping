@@ -158,6 +158,24 @@ test('main CI does not publish or deploy automatically', async () => {
   assert.match(workflow, /ford-mcp\.emme\.business\/mcp/);
   assert.match(workflow, /backup-host: \$\{\{ vars\.OCI_DATA_DEPLOY_HOST \}\}/);
   assert.match(workflow, /backup-user: \$\{\{ vars\.OCI_DATA_DEPLOY_USER \}\}/);
+  assert.match(workflow, /remote-root: \/opt\/ford-uruapan/);
+});
+
+test('requested MCP releases fail instead of producing a skipped deployment artifact', async () => {
+  const workflow = await read('.github/workflows/release.yml');
+
+  assert.match(workflow, /Run Ford MCP releases from main/);
+  assert.ok(workflow.includes('  production-readiness:'));
+  assert.match(
+    workflow,
+    /PRODUCTION_DEPLOY_ENABLED: \$\{\{ vars\.PRODUCTION_DEPLOY_ENABLED \}\}/,
+  );
+  assert.match(
+    workflow,
+    /RUNTIME_VAULT_READY: \$\{\{ vars\.RUNTIME_VAULT_READY \}\}/,
+  );
+  assert.match(workflow, /needs\.production-readiness\.result == 'success'/);
+  assert.doesNotMatch(workflow, /needs\.deploy\.result == 'skipped'/);
 });
 
 test('manual deploy and rollback dispatches satisfy the release contract dependency', async () => {

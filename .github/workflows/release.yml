@@ -36,6 +36,15 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
+      - name: Require dispatch from main
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_REF}" == 'refs/heads/main' ]] || {
+            echo 'Run Ford MCP releases from main.' >&2
+            exit 1
+          }
       - name: Confirm release jobs enforce their own operation gates
         run: echo "Release event contract accepted; publication and deployment remain separately gated."
 
@@ -159,12 +168,35 @@ jobs:
           echo "image=${digest_reference}" >> "$GITHUB_OUTPUT"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
+  production-readiness:
+    name: Require production release readiness
+    needs: verify
+    if: always() && needs.verify.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
+      RUNTIME_VAULT_READY: ${{ vars.RUNTIME_VAULT_READY }}
+    steps:
+      - name: Fail clearly when a production gate is not ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PRODUCTION_DEPLOY_ENABLED" == 'true' ]] || {
+            echo 'Production MCP release blocked: set PRODUCTION_DEPLOY_ENABLED=true after production readiness review.' >&2
+            exit 1
+          }
+          [[ "$RUNTIME_VAULT_READY" == 'true' ]] || {
+            echo 'Production MCP release blocked: verify runtime OCI Vault consumers, then set RUNTIME_VAULT_READY=true.' >&2
+            exit 1
+          }
+
   deploy:
     name: Deploy or roll back Ford MCP
-    needs: [contract, verify, image]
+    needs: [contract, verify, image, production-readiness]
     if: >-
       always() && needs.contract.result == 'success' && needs.verify.result == 'success' &&
       (needs.verify.outputs.operation == 'rollback' || needs.image.result == 'success') &&
+      needs.production-readiness.result == 'success' &&
       vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
       vars.RUNTIME_VAULT_READY == 'true'
     runs-on: ubuntu-latest
@@ -186,17 +218,19 @@ jobs:
           ssh-known-hosts: ${{ secrets.OCI_SSH_KNOWN_HOSTS }}
           registry-username: ${{ github.actor }}
           registry-token: ${{ github.token }}
+          remote-root: /opt/ford-uruapan
           mcp-private-ip: ${{ vars.OCI_MCP_PRIVATE_IP }}
           backup-host: ${{ vars.OCI_DATA_DEPLOY_HOST }}
           backup-user: ${{ vars.OCI_DATA_DEPLOY_USER }}
 
   release-result:
     name: Record release artifact and deployment identity
-    needs: [verify, image, deploy]
+    needs: [verify, image, production-readiness, deploy]
     if: >-
       always() && needs.verify.result == 'success' &&
       (needs.verify.outputs.operation == 'rollback' || needs.image.result == 'success') &&
-      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
+      needs.production-readiness.result == 'success' &&
+      needs.deploy.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
