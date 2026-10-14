@@ -61,10 +61,7 @@ test('manual release publishes and scans the verified source image by digest', a
   assert.match(workflow, /anchore\/sbom-action/);
   assert.match(workflow, /actions\/attest-build-provenance/);
   assert.match(workflow, /cache-to: type=local/);
-  assert.match(
-    workflow,
-    /Ford-oci-deployment-action.*@[a-f0-9]{7,40}/,
-  );
+  assert.match(workflow, /Ford-oci-deployment-action.*@[a-f0-9]{7,40}/);
   assert.match(workflow, /exit-code: '1'/);
   assert.match(workflow, /target: ford-mcp/);
 });
