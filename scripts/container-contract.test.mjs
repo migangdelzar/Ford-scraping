@@ -69,6 +69,26 @@ test('manual release publishes and scans the verified source image by digest', a
   assert.match(workflow, /target: ford-mcp/);
 });
 
+test('manual release verifies the published image provenance from the release workflow', async () => {
+  const workflow = await read('.github/workflows/release.yml');
+
+  const attestIndex = workflow.indexOf('name: Attest image provenance');
+  const verifyIndex = workflow.indexOf('name: Verify published image provenance');
+  const summaryIndex = workflow.indexOf('name: Summarize immutable scraper release');
+
+  assert.ok(attestIndex >= 0, 'the image must be attested');
+  assert.ok(verifyIndex > attestIndex, 'verify only after the registry attestation exists');
+  assert.ok(summaryIndex > verifyIndex, 'release cannot pass before provenance verification');
+  assert.match(workflow, /gh attestation verify "oci:\/\/\$\{IMAGE\}"/);
+  assert.match(workflow, /--repo "\$\{GITHUB_REPOSITORY\}"/);
+  assert.match(
+    workflow,
+    /--signer-workflow "\$\{GITHUB_REPOSITORY\}\/\.github\/workflows\/release\.yml"/,
+  );
+  assert.match(workflow, /IMAGE: \$\{\{ steps\.image\.outputs\.image \}\}/);
+  assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+});
+
 test('successful main CI automatically publishes that exact MCP and scheduler source', async () => {
   const workflow = await read('.github/workflows/release.yml');
 

@@ -210,6 +210,14 @@ jobs:
           subject-name: ${{ steps.image-name.outputs.name }}
           subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
+      - name: Verify published image provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          gh attestation verify "oci://${IMAGE}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
       - name: Summarize immutable scraper release
         env:
           IMAGE: ${{ steps.image.outputs.image }}
@@ -220,7 +228,7 @@ jobs:
             echo "- Source: ${SOURCE_SHA}"
             echo "- Immutable image: ${IMAGE}"
             echo '- Vulnerability scan: passed'
-            echo '- SBOM and build provenance: attached'
+            echo '- SBOM and build provenance: verified'
           } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
