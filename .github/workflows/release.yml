@@ -1,21 +1,21 @@
 name: Release MCP to OCI
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('Release MCP to OCI [{0}] {1}', inputs.release_request_id || 'manual', inputs.source_sha || 'unspecified') || 'Release MCP to OCI' }}
+run-name: ${{ format('Release MCP to OCI [{0}] {1} {2}', inputs.release_request_id || 'manual', inputs.version || 'rollback', inputs.source_sha || 'recorded') }}
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       operation:
-        description: Validate this release workflow, deploy verified main, or restore the prior image.
+        description: Validate this release workflow, publish/deploy a versioned release, or restore the prior image.
         required: true
         default: deploy
         type: choice
         options: [validate, deploy, rollback]
+      version:
+        description: Immutable annotated vMAJOR.MINOR.PATCH tag (deploy only).
+        required: false
+        type: string
       source_sha:
-        description: Full 40-character SHA with successful CI on main (deploy only).
+        description: Full SHA targeted by the version tag (deploy only).
         required: false
         type: string
       release_request_id:
@@ -33,7 +33,7 @@ concurrency:
 jobs:
   contract:
     name: Verify release contract without publishing
-    if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Confirm release jobs enforce their own operation gates
@@ -42,57 +42,63 @@ jobs:
   verify:
     name: Verify release source
     if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository) ||
-      (github.event_name == 'workflow_dispatch' && inputs.operation != 'validate')
+      github.event_name == 'workflow_dispatch' && inputs.operation != 'validate'
     runs-on: ubuntu-latest
     outputs:
       operation: ${{ steps.source.outputs.operation }}
       source_sha: ${{ steps.source.outputs.source_sha }}
+      version: ${{ steps.source.outputs.version }}
     permissions:
       actions: read
       contents: read
     steps:
+      - name: Check out release tooling from main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
       - name: Resolve the verified release source
         id: source
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
-          WORKFLOW_RUN_EVENT: ${{ github.event.workflow_run.event }}
-          WORKFLOW_RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          WORKFLOW_RUN_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
-          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           REQUESTED_OPERATION: ${{ inputs.operation }}
           REQUESTED_SHA: ${{ inputs.source_sha }}
+          INPUT_VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
-            [[ "${WORKFLOW_RUN_CONCLUSION}" == "success" && "${WORKFLOW_RUN_EVENT}" == "push" && \
-              "${WORKFLOW_RUN_BRANCH}" == "main" && "${WORKFLOW_RUN_REPOSITORY,,}" == "${GITHUB_REPOSITORY,,}" ]] || {
-              echo "Automatic release requires a successful push CI run from this repository's main branch." >&2
-              exit 1
-            }
-            operation=deploy
-            source_sha="${WORKFLOW_RUN_SHA}"
-          else
-            operation="${REQUESTED_OPERATION}"
-            source_sha="${REQUESTED_SHA}"
-            if [[ "${operation}" == "rollback" ]]; then
-              source_sha=recorded-rollback
-            fi
+          operation="${REQUESTED_OPERATION}"
+          source_sha="${REQUESTED_SHA}"
+          version="${INPUT_VERSION}"
+          if [[ "${operation}" == "rollback" ]]; then
+            source_sha=recorded-rollback
           fi
           if [[ "${operation}" == "deploy" ]]; then
-            [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || {
-              echo "Deploy requires a full 40-character lowercase source SHA." >&2
+            [[ "${version}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+              echo "Deploy requires a canonical vMAJOR.MINOR.PATCH version." >&2
               exit 1
             }
-            runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&head_sha=${source_sha}")"
-            jq -e --arg sha "${source_sha}" \
-            '.workflow_runs | any(.head_sha == $sha and .head_branch == "main" and .conclusion == "success")' \
-            <<<"$runs" >/dev/null || {
-              echo "Source SHA has no successful push verification run on main." >&2
+            [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "Deploy requires a full source SHA." >&2
+              exit 1
+            }
+            git fetch --no-tags origin "refs/tags/${version}:refs/tags/${version}"
+            [[ "$(git cat-file -t "refs/tags/${version}")" == tag ]] || {
+              echo "Release version must be an annotated tag." >&2
+              exit 1
+            }
+            [[ "$(git rev-parse "refs/tags/${version}^{commit}")" == "${source_sha}" ]] || {
+              echo "Release tag target does not match the selected source SHA." >&2
+              exit 1
+            }
+            git merge-base --is-ancestor "${source_sha}" refs/remotes/origin/main || {
+              echo "Release tag target is not reachable from main." >&2
+              exit 1
+            }
+            runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${source_sha}&event=push&status=success&per_page=100")"
+            jq -e --arg sha "${source_sha}" --arg version "${version}" \
+            '.workflow_runs | any(.head_sha == $sha and .head_branch == $version and .conclusion == "success")' \
+            <<<"${runs}" >/dev/null || {
+              echo "Version tag has no successful push CI run for its exact source SHA." >&2
               exit 1
             }
           elif [[ "${operation}" != "rollback" ]]; then
@@ -101,6 +107,7 @@ jobs:
           fi
           echo "operation=${operation}" >> "$GITHUB_OUTPUT"
           echo "source_sha=${source_sha}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
   image:
     name: Build and scan immutable MCP image
@@ -178,19 +185,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - name: Load and publish the scanned image
+        id: publish
         env:
-          IMAGE_TAG: ${{ steps.image-name.outputs.name }}:sha-${{ needs.verify.outputs.source_sha }}
+          IMAGE_REPOSITORY: ${{ steps.image-name.outputs.name }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
           set -euo pipefail
           docker load --input /tmp/ford-scraping.tar
-          docker push "${IMAGE_TAG}" | tee /tmp/docker-push.log
+          sha_tag="${IMAGE_REPOSITORY}:sha-${SOURCE_SHA}"
+          version_tag="${IMAGE_REPOSITORY}:${VERSION}"
+          plain_version_tag="${IMAGE_REPOSITORY}:${VERSION#v}"
+          for tag in "${version_tag}" "${plain_version_tag}"; do
+            if docker buildx imagetools inspect "${tag}" >/dev/null 2>&1; then
+              echo "Version image alias already exists: ${tag}" >&2
+              exit 1
+            fi
+          done
+          docker push "${sha_tag}" | tee /tmp/docker-push.log
+          docker tag "${sha_tag}" "${version_tag}"
+          docker tag "${sha_tag}" "${plain_version_tag}"
+          docker push "${version_tag}"
+          docker push "${plain_version_tag}"
           digest="$(sed -n 's/^.*digest: \(sha256:[0-9a-f]*\).*$/\1/p' /tmp/docker-push.log | tail -1)"
           [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
             echo 'Could not resolve published image digest.' >&2
             exit 1
           }
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-        id: publish
       - name: Expose immutable image digest
         id: image
         env:
@@ -214,17 +236,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ steps.image.outputs.image }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
           gh attestation verify "oci://${IMAGE}" \
             --repo "${GITHUB_REPOSITORY}" \
+            --source-ref "refs/tags/${VERSION}" \
+            --source-digest "${SOURCE_SHA}" \
             --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
       - name: Summarize immutable scraper release
         env:
           IMAGE: ${{ steps.image.outputs.image }}
           SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
           {
             echo '### Ford-scraping container'
+            echo "- Version: ${VERSION}"
             echo "- Source: ${SOURCE_SHA}"
             echo "- Immutable image: ${IMAGE}"
             echo '- Vulnerability scan: passed'
@@ -261,3 +289,49 @@ jobs:
           mcp-private-ip: ${{ vars.OCI_MCP_PRIVATE_IP }}
           backup-host: ${{ vars.OCI_DATA_DEPLOY_HOST }}
           backup-user: ${{ vars.OCI_DATA_DEPLOY_USER }}
+
+  release-result:
+    name: Record release artifact and deployment identity
+    needs: [verify, image, deploy]
+    if: >-
+      always() && needs.verify.result == 'success' &&
+      (needs.verify.outputs.operation == 'rollback' || needs.image.result == 'success') &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Write release result manifest
+        env:
+          OPERATION: ${{ needs.verify.outputs.operation }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+          DEPLOYMENT_RESULT: ${{ needs.deploy.result }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          deployed = os.environ["DEPLOYMENT_RESULT"] == "success"
+          result = {
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "version": os.environ["VERSION"] or None,
+              "tag": os.environ["VERSION"] or None,
+              "sourceSha": os.environ["SOURCE_SHA"],
+              "imageDigest": os.environ["IMAGE_DIGEST"] or None,
+              "deploymentId": os.environ["GITHUB_RUN_ID"] if deployed else None,
+              "deploymentUrl": "https://ford-mcp.emme.business/mcp" if deployed else None,
+          }
+          Path(os.environ["RUNNER_TEMP"], "release-result.json").write_text(
+              json.dumps(result, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+      - name: Upload release result artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ford-release-result
+          path: ${{ runner.temp }}/release-result.json
+          if-no-files-found: error
+          retention-days: 90

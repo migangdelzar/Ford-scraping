@@ -54,11 +54,19 @@ test('CI verifies authenticated MCP initialization and tool listing in the conta
   assert.match(workflow, /search_vehicles/);
 });
 
-test('manual release publishes and scans the verified source image by digest', async () => {
+test('versioned release publishes only an immutable SemVer tag after verifying tagged CI', async () => {
   const workflow = await read('.github/workflows/release.yml');
 
+  assert.match(workflow, /version:/);
+  assert.match(workflow, /INPUT_VERSION/);
+  assert.match(workflow, /refs\/tags\/\$\{version\}/);
+  assert.match(workflow, /git cat-file -t/);
+  assert.match(workflow, /git merge-base --is-ancestor/);
+  assert.match(workflow, /\.head_branch == \$version/);
+  assert.match(workflow, /--source-ref "refs\/tags\/\$\{VERSION\}"/);
+  assert.match(workflow, /--source-digest "\$\{SOURCE_SHA\}"/);
   assert.match(workflow, /REQUESTED_SHA: \$\{\{ inputs\.source_sha \}\}/);
-  assert.match(workflow, /\.head_branch == "main"/);
+  assert.doesNotMatch(workflow, /workflow_run:/);
   assert.match(workflow, /platforms: linux\/arm64/);
   assert.match(workflow, /sha-\$\{\{ needs\.verify\.outputs\.source_sha \}\}/);
   assert.match(workflow, /aquasecurity\/trivy-action/);
@@ -69,7 +77,8 @@ test('manual release publishes and scans the verified source image by digest', a
       workflow.indexOf('name: Log in to GHCR'),
     'the image must pass its scan before registry login and publication',
   );
-  assert.match(workflow, /docker push "\$\{IMAGE_TAG\}"/);
+  assert.match(workflow, /docker push "\$\{sha_tag\}"/);
+  assert.match(workflow, /docker push "\$\{version_tag\}"/);
   assert.doesNotMatch(workflow, /push: true/);
   assert.match(workflow, /anchore\/sbom-action/);
   assert.match(workflow, /actions\/attest-build-provenance/);
@@ -112,29 +121,17 @@ test('manual release verifies the published image provenance from the release wo
   assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
 });
 
-test('successful main CI automatically publishes that exact MCP and scheduler source', async () => {
+test('main CI does not publish or deploy automatically', async () => {
   const workflow = await read('.github/workflows/release.yml');
 
-  assert.match(
-    workflow,
-    /workflow_run:[\s\S]*?workflows: \[CI\][\s\S]*?branches: \[main\]/,
-  );
-  assert.match(
-    workflow,
-    /WORKFLOW_RUN_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}/,
-  );
-  assert.match(
-    workflow,
-    /WORKFLOW_RUN_CONCLUSION: \$\{\{ github\.event\.workflow_run\.conclusion \}\}/,
-  );
-  assert.match(
-    workflow,
-    /WORKFLOW_RUN_EVENT: \$\{\{ github\.event\.workflow_run\.event \}\}/,
-  );
-  assert.match(workflow, /WORKFLOW_RUN_EVENT\}" == "push"/);
+  assert.doesNotMatch(workflow, /workflow_run:/);
   assert.match(workflow, /needs\.verify\.outputs\.operation == 'deploy'/);
   assert.match(workflow, /needs\.verify\.result == 'success'/);
   assert.match(workflow, /vars\.PRODUCTION_DEPLOY_ENABLED == 'true'/);
+  assert.match(workflow, /vars\.RUNTIME_VAULT_READY == 'true'/);
+  assert.match(workflow, /name: ford-release-result/);
+  assert.match(workflow, /"imageDigest": os\.environ\["IMAGE_DIGEST"\]/);
+  assert.match(workflow, /ford-mcp\.emme\.business\/mcp/);
   assert.match(workflow, /backup-host: \$\{\{ vars\.OCI_DATA_DEPLOY_HOST \}\}/);
   assert.match(workflow, /backup-user: \$\{\{ vars\.OCI_DATA_DEPLOY_USER \}\}/);
 });
@@ -144,7 +141,7 @@ test('manual deploy and rollback dispatches satisfy the release contract depende
 
   assert.match(
     workflow,
-    /contract:[\s\S]*?if: github\.event_name == 'workflow_run' \|\| github\.event_name == 'workflow_dispatch'/,
+    /contract:[\s\S]*?if: github\.event_name == 'workflow_dispatch'/,
   );
   assert.match(workflow, /needs\.contract\.result == 'success'/);
 });
