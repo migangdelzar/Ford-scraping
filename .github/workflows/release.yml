@@ -259,3 +259,5 @@ jobs:
           registry-username: ${{ github.actor }}
           registry-token: ${{ github.token }}
           mcp-private-ip: ${{ vars.OCI_MCP_PRIVATE_IP }}
+          backup-host: ${{ vars.OCI_DATA_DEPLOY_HOST }}
+          backup-user: ${{ vars.OCI_DATA_DEPLOY_USER }}

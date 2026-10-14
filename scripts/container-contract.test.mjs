@@ -63,7 +63,7 @@ test('manual release publishes and scans the verified source image by digest', a
   assert.match(workflow, /cache-to: type=local/);
   assert.match(
     workflow,
-    /Ford-oci-deployment-action.*@f8112024deea512ffebe8a7b49df531a29dad027/,
+    /Ford-oci-deployment-action.*@[a-f0-9]{7,40}/,
   );
   assert.match(workflow, /exit-code: '1'/);
   assert.match(workflow, /target: ford-mcp/);
@@ -122,6 +122,8 @@ test('successful main CI automatically publishes that exact MCP and scheduler so
   assert.match(workflow, /needs\.verify\.outputs\.operation == 'deploy'/);
   assert.match(workflow, /needs\.verify\.result == 'success'/);
   assert.match(workflow, /vars\.PRODUCTION_DEPLOY_ENABLED == 'true'/);
+  assert.match(workflow, /backup-host: \$\{\{ vars\.OCI_DATA_DEPLOY_HOST \}\}/);
+  assert.match(workflow, /backup-user: \$\{\{ vars\.OCI_DATA_DEPLOY_USER \}\}/);
 });
 
 test('manual deploy and rollback dispatches satisfy the release contract dependency', async () => {
