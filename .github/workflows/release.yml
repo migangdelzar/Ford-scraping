@@ -222,7 +222,7 @@ jobs:
             exit 1
           }
       - name: Deploy using the shared OCI action
-        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@16e8dc54c41ccaaedb7cf161446373294ff86ddb
+        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@9cb6eae7e3803df4684c664a7106873d78550f4f
         with:
           target: ford-mcp
           operation: ${{ needs.verify.outputs.operation }}
@@ -236,6 +236,9 @@ jobs:
           registry-token: ${{ github.token }}
           remote-root: /opt/ford-uruapan
           mcp-private-ip: ${{ vars.OCI_MCP_PRIVATE_IP }}
+          secrets-provider: ${{ vars.FORD_SECRETS_PROVIDER }}
+          postgres-password-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}
+          mcp-http-bearer-token-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}
           backup-host: ${{ vars.OCI_DATA_DEPLOY_HOST }}
           backup-user: ${{ vars.OCI_DATA_DEPLOY_USER }}
 
