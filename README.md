@@ -65,6 +65,8 @@ Run actual local-model conversations with `npm run eval:mcp:llm`. It defaults to
 
 The default MCP transport is stdio. For a remote client, start the protected Streamable HTTP transport with `mcp-http`; it listens on `127.0.0.1:3001/mcp` by default. Configure `MCP_HTTP_ALLOWED_HOSTS` for the tunnel hostname and `MCP_HTTP_ALLOWED_ORIGINS` for browser clients before exposing it through Cloudflare Tunnel.
 
+For production OCI Instance Principal and Vault mapping requirements, see [`docs/operations.md`](docs/operations.md#production-runtime-secrets). Secret values stay in OCI Vault; deployment variables contain only secret OCIDs.
+
 ## Observability with Langfuse
 
 The TypeScript MCP/API search layer supports optional Langfuse tracing through OpenTelemetry. Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable it; when either value is missing, the application uses a no-op observer and does not contact Langfuse. Search spans include query filters, candidate/result counts, semantic-search status, latency, and the top result identifier, but not full catalog result payloads or user identifiers.

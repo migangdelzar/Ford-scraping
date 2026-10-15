@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import {loadConfig} from './config.js';
+import {loadRuntimeEnvironment} from './secrets/runtime-secrets.js';
 import {runMigrations} from './storage/database.js';
 import {createApplication} from './composition-root.js';
 import {buildApiApp} from './api/app.js';
@@ -27,7 +28,8 @@ function option(name: string, fallback: number): number {
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? 'help';
-  const config = loadConfig(process.env);
+  const environment = await loadRuntimeEnvironment(process.env, {command});
+  const config = loadConfig(environment);
 
   if (command === 'migrate') {
     const application = createApplication(config);

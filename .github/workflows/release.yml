@@ -204,9 +204,25 @@ jobs:
     permissions:
       contents: read
       packages: read
+    env:
+      FORD_SECRETS_PROVIDER: ${{ vars.FORD_SECRETS_PROVIDER }}
+      FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}
+      FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}
     steps:
+      - name: Validate protected runtime Vault configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$FORD_SECRETS_PROVIDER" == 'oci-vault' ]] || {
+            echo 'MCP production deployment blocked: configure FORD_SECRETS_PROVIDER=oci-vault in the production environment.' >&2
+            exit 1
+          }
+          [[ -n "$FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD" && -n "$FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN" ]] || {
+            echo 'MCP production deployment blocked: configure both MCP OCI Vault secret OCIDs in the production environment.' >&2
+            exit 1
+          }
       - name: Deploy using the shared OCI action
-        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@8e32aec3eabf8207c47c7a601d8d32735f7c0b37
+        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@7c9eb649e4ffb83ac9ed2a7037c6fc2281f747c2
         with:
           target: ford-mcp
           operation: ${{ needs.verify.outputs.operation }}
