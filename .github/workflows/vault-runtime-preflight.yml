@@ -1,0 +1,113 @@
+name: MCP Runtime Vault Preflight
+run-name: MCP Runtime Vault Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-runtime-vault-preflight
+  cancel-in-progress: false
+
+jobs:
+  verify-runtime-secret-access:
+    name: Read-only verify emme-2 Vault access
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
+    env:
+      FORD_SECRETS_PROVIDER: ${{ vars.FORD_SECRETS_PROVIDER }}
+      FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}
+      FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}
+      OCI_MCP_HOST: ${{ vars.OCI_MCP_HOST }}
+      OCI_DEPLOY_USER: ${{ vars.OCI_DEPLOY_USER }}
+      OCI_MCP_SSH_PRIVATE_KEY: ${{ secrets.OCI_MCP_SSH_PRIVATE_KEY }}
+      OCI_SSH_KNOWN_HOSTS: ${{ secrets.OCI_SSH_KNOWN_HOSTS }}
+    steps:
+      - name: Require dispatch from main and valid runtime references
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_REF}" == 'refs/heads/main' ]] || {
+            echo 'Run the MCP Vault preflight from main.' >&2
+            exit 1
+          }
+          [[ "$FORD_SECRETS_PROVIDER" == 'oci-vault' ]] || {
+            echo 'Configure FORD_SECRETS_PROVIDER=oci-vault in the production environment.' >&2
+            exit 1
+          }
+          [[ "$FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD" =~ ^ocid1\.vaultsecret\. ]] || {
+            echo 'Configure the production PostgreSQL Vault secret OCID.' >&2
+            exit 1
+          }
+          [[ "$FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN" =~ ^ocid1\.vaultsecret\. ]] || {
+            echo 'Configure the production MCP HTTP bearer token Vault secret OCID.' >&2
+            exit 1
+          }
+          [[ -n "$OCI_MCP_HOST" && -n "$OCI_DEPLOY_USER" && -n "$OCI_MCP_SSH_PRIVATE_KEY" && -n "$OCI_SSH_KNOWN_HOSTS" ]] || {
+            echo 'Configure the production MCP SSH connection.' >&2
+            exit 1
+          }
+
+      - name: Install pinned SSH credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$OCI_MCP_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/ssh/emme-2"
+          printf '%s\n' "$OCI_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/ssh/known_hosts"
+          chmod 0600 "$RUNNER_TEMP/ssh/emme-2" "$RUNNER_TEMP/ssh/known_hosts"
+
+      - name: Verify Instance Principal can read both configured secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$RUNNER_TEMP/ssh/emme-2" \
+            -o BatchMode=yes -o ConnectTimeout=15 \
+            -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            "$OCI_DEPLOY_USER@$OCI_MCP_HOST" \
+            "FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD='$FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD' FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN='$FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN' bash -se" <<'REMOTE'
+          set -euo pipefail
+          oci_bin=/usr/local/bin/oci
+          [[ -x "$oci_bin" ]] || {
+            echo 'OCI CLI is not installed on emme-2; run the approved backup setup first.' >&2
+            exit 1
+          }
+          read_secret() {
+            "$oci_bin" secrets secret-bundle get \
+              --auth instance_principal \
+              --secret-id "$1" \
+              --query 'data."secret-bundle-content".content' \
+              --raw-output
+          }
+          postgres_b64="$(read_secret "$FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD")"
+          mcp_token_b64="$(read_secret "$FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN")"
+          POSTGRES_SECRET_B64="$postgres_b64" MCP_TOKEN_SECRET_B64="$mcp_token_b64" python3 - <<'PY'
+          import base64
+          import os
+
+          for key in ("POSTGRES_SECRET_B64", "MCP_TOKEN_SECRET_B64"):
+              decoded = base64.b64decode(os.environ[key], validate=True)
+              if not decoded:
+                  raise SystemExit("OCI Vault returned an empty runtime secret")
+          PY
+          unset postgres_b64 mcp_token_b64
+          echo 'Vault access passed for both runtime secret mappings.'
+          REMOTE
+
+      - name: Summarize read-only checks
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### MCP Runtime Vault Preflight'
+            echo "- Source: $GITHUB_SHA"
+            echo '- emme-2 SSH and Instance Principal Vault access: checked'
+            echo '- Secret values printed or persisted: no'
+            echo '- Backup, migration, container startup, and route switch: not run'
+          } >> "$GITHUB_STEP_SUMMARY"
