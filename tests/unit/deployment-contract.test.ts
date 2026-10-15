@@ -10,6 +10,10 @@ const releaseWorkflowPath = resolve(
 const dockerfilePath = resolve(process.cwd(), 'Dockerfile');
 const composePath = resolve(process.cwd(), 'docker-compose.yml');
 const configPath = resolve(process.cwd(), 'src/config.ts');
+const vaultPreflightPath = resolve(
+  process.cwd(),
+  '.github/workflows/vault-runtime-preflight.yml',
+);
 
 describe('CI workflow contract', () => {
   it('runs quality gates on every branch push, pull request, and manual dispatch', () => {
@@ -179,6 +183,35 @@ describe('MCP release workflow contract', () => {
     );
     expect(workflow).toContain(
       'FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}',
+    );
+  });
+});
+
+describe('production Vault readiness preflight', () => {
+  it('read-only verifies both secret reads on emme-2 before readiness is enabled', () => {
+    const workflow = readFileSync(vaultPreflightPath, 'utf8');
+
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain('GITHUB_REF}');
+    expect(workflow).toContain("'refs/heads/main'");
+    expect(workflow).toContain('environment: production');
+    expect(workflow).toContain(
+      'FORD_SECRETS_PROVIDER: ${{ vars.FORD_SECRETS_PROVIDER }}',
+    );
+    expect(workflow).toContain('FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD:');
+    expect(workflow).toContain('FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN:');
+    expect(workflow).toContain('OCI_MCP_SSH_PRIVATE_KEY');
+    expect(workflow).toContain('OCI_SSH_KNOWN_HOSTS');
+    expect(workflow).toContain('--auth instance_principal');
+    expect(workflow).toContain('secret-bundle get');
+    expect(workflow).toContain('Vault access passed');
+    expect(workflow).not.toMatch(/echo\s+.*(?:secret|token|password).*\$\{/i);
+    expect(workflow).not.toContain('docker compose');
+    expect(workflow).toContain(
+      'migration, container startup, and route switch: not run',
+    );
+    expect(workflow).not.toMatch(
+      /\b(?:docker|npm)\s+(?:compose|run\s+migrate)/i,
     );
   });
 });
