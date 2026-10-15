@@ -161,14 +161,14 @@ describe('MCP release workflow contract', () => {
     const workflow = readFileSync(releaseWorkflowPath, 'utf8');
 
     expect(workflow).toMatch(
-      /uses: migangdelzar\/Ford-oci-deployment-action\/\.github\/actions\/oci-blue-green@6d40dc2c1ea69de16f86305d55d89dbf2a73620e/,
+      /uses: migangdelzar\/Ford-oci-deployment-action\/\.github\/actions\/oci-blue-green@874947f1c1b0f57bc0d11991ac60234679b5118e/,
     );
     expect(workflow).toContain("vars.PRODUCTION_DEPLOY_ENABLED == 'true'");
     expect(workflow).toContain("vars.RUNTIME_VAULT_READY == 'true'");
     expect(workflow).toContain('environment: production');
     expect(workflow).not.toContain('continue-on-error: true');
     expect(workflow).toContain(
-      'migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@6d40dc2c1ea69de16f86305d55d89dbf2a73620e',
+      'migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@874947f1c1b0f57bc0d11991ac60234679b5118e',
     );
   });
 
