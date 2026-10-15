@@ -236,6 +236,9 @@ jobs:
           registry-token: ${{ github.token }}
           remote-root: /opt/ford-uruapan
           mcp-private-ip: ${{ vars.OCI_MCP_PRIVATE_IP }}
+          secrets-provider: ${{ vars.FORD_SECRETS_PROVIDER }}
+          postgres-password-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}
+          mcp-http-bearer-token-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}
           backup-host: ${{ vars.OCI_DATA_DEPLOY_HOST }}
           backup-user: ${{ vars.OCI_DATA_DEPLOY_USER }}
 

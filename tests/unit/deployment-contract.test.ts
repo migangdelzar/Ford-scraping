@@ -161,14 +161,14 @@ describe('MCP release workflow contract', () => {
     const workflow = readFileSync(releaseWorkflowPath, 'utf8');
 
     expect(workflow).toMatch(
-      /uses: migangdelzar\/Ford-oci-deployment-action\/\.github\/actions\/oci-blue-green@16e8dc54c41ccaaedb7cf161446373294ff86ddb/,
+      /uses: migangdelzar\/Ford-oci-deployment-action\/\.github\/actions\/oci-blue-green@657c18c1afcbc8dba7d89de188ea30ae4e8472cd/,
     );
     expect(workflow).toContain("vars.PRODUCTION_DEPLOY_ENABLED == 'true'");
     expect(workflow).toContain("vars.RUNTIME_VAULT_READY == 'true'");
     expect(workflow).toContain('environment: production');
     expect(workflow).not.toContain('continue-on-error: true');
     expect(workflow).toContain(
-      'migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@16e8dc54c41ccaaedb7cf161446373294ff86ddb',
+      'migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@657c18c1afcbc8dba7d89de188ea30ae4e8472cd',
     );
   });
 
@@ -183,6 +183,15 @@ describe('MCP release workflow contract', () => {
     );
     expect(workflow).toContain(
       'FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}',
+    );
+    expect(workflow).toContain(
+      'secrets-provider: ${{ vars.FORD_SECRETS_PROVIDER }}',
+    );
+    expect(workflow).toContain(
+      'postgres-password-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}',
+    );
+    expect(workflow).toContain(
+      'mcp-http-bearer-token-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}',
     );
   });
 });
