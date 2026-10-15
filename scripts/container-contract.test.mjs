@@ -123,7 +123,7 @@ test('manual MCP release resolves only the immutable image published by tagged C
   assert.doesNotMatch(workflow, /docker push/);
   assert.match(
     workflow,
-    /Ford-oci-deployment-action.*@9cb6eae7e3803df4684c664a7106873d78550f4f/,
+    /Ford-oci-deployment-action.*@bd315d1c43c5871d17438bf05a67aa35eb0bcac3/,
   );
   assert.match(workflow, /target: ford-mcp/);
 });
