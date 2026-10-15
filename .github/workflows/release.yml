@@ -222,7 +222,7 @@ jobs:
             exit 1
           }
       - name: Deploy using the shared OCI action
-        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@657c18c1afcbc8dba7d89de188ea30ae4e8472cd
+        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@9cb6eae7e3803df4684c664a7106873d78550f4f
         with:
           target: ford-mcp
           operation: ${{ needs.verify.outputs.operation }}
