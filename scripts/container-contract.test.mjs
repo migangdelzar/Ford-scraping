@@ -104,6 +104,8 @@ test('manual MCP release resolves only the immutable image published by tagged C
   assert.match(workflow, /git merge-base --is-ancestor/);
   assert.match(workflow, /\.head_branch == \$version/);
   assert.match(workflow, /REQUESTED_SHA: \$\{\{ inputs\.source_sha \}\}/);
+  assert.match(workflow, /actions\/runs\/\$\{coordinator_run_id\}\/attempts\/\$\{coordinator_attempt\}\/jobs/);
+  assert.match(workflow, /Approve and deploy selected releases in order/);
   assert.doesNotMatch(workflow, /workflow_run:/);
   assert.match(
     workflow,
@@ -175,6 +177,8 @@ test('requested MCP releases fail instead of producing a skipped deployment arti
     /RUNTIME_VAULT_READY: \$\{\{ vars\.RUNTIME_VAULT_READY \}\}/,
   );
   assert.match(workflow, /needs\.production-readiness\.result == 'success'/);
+  assert.match(workflow, /approval:[\s\S]*?environment: manual-release-approval/);
+  assert.match(workflow, /registry-username: \$\{\{ github\.repository_owner \}\}/);
   assert.doesNotMatch(workflow, /needs\.deploy\.result == 'skipped'/);
 });
 
