@@ -161,14 +161,14 @@ describe('MCP release workflow contract', () => {
     const workflow = readFileSync(releaseWorkflowPath, 'utf8');
 
     expect(workflow).toMatch(
-      /uses: migangdelzar\/Ford-oci-deployment-action\/\.github\/actions\/oci-blue-green@161471351d0ae1d42de129b60cad207bc9d8ce9f/,
+      /uses: migangdelzar\/Ford-oci-deployment-action\/\.github\/actions\/oci-blue-green@cd920eb42c341a0ecc8583ea00a878f6a89bcc72/,
     );
     expect(workflow).toContain("vars.PRODUCTION_DEPLOY_ENABLED == 'true'");
     expect(workflow).toContain("vars.RUNTIME_VAULT_READY == 'true'");
     expect(workflow).toContain('environment: production');
     expect(workflow).not.toContain('continue-on-error: true');
     expect(workflow).toContain(
-      'migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@161471351d0ae1d42de129b60cad207bc9d8ce9f',
+      'migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@cd920eb42c341a0ecc8583ea00a878f6a89bcc72',
     );
   });
 
@@ -193,11 +193,20 @@ describe('MCP release workflow contract', () => {
     expect(workflow).toContain(
       'mcp-http-bearer-token-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}',
     );
+    expect(workflow).toContain(
+      'mcp-public-smoke-access-client-id: ${{ vars.FORD_MCP_ACCESS_CLIENT_ID }}',
+    );
+    expect(workflow).toContain(
+      'mcp-public-smoke-access-client-secret-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET }}',
+    );
+    expect(workflow).toContain(
+      'FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET: ${{ vars.FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET }}',
+    );
   });
 });
 
 describe('production Vault readiness preflight', () => {
-  it('read-only verifies both secret reads on emme-2 before readiness is enabled', () => {
+  it('read-only verifies all runtime and public smoke secret reads on emme-2', () => {
     const workflow = readFileSync(vaultPreflightPath, 'utf8');
 
     expect(workflow).toContain('workflow_dispatch:');
@@ -209,6 +218,12 @@ describe('production Vault readiness preflight', () => {
     );
     expect(workflow).toContain('FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD:');
     expect(workflow).toContain('FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN:');
+    expect(workflow).toContain('FORD_MCP_ACCESS_CLIENT_ID:');
+    expect(workflow).toContain(
+      'FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET:',
+    );
+    expect(workflow).toContain('FORD_MCP_ACCESS_CLIENT_ID');
+    expect(workflow).toContain('CLOUDFLARE_ACCESS_CLIENT_SECRET_B64');
     expect(workflow).toContain('OCI_MCP_SSH_PRIVATE_KEY');
     expect(workflow).toContain('OCI_SSH_KNOWN_HOSTS');
     expect(workflow).toContain('--auth instance_principal');

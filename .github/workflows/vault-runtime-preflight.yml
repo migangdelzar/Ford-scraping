@@ -23,6 +23,8 @@ jobs:
       FORD_SECRETS_PROVIDER: ${{ vars.FORD_SECRETS_PROVIDER }}
       FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}
       FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}
+      FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET: ${{ vars.FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET }}
+      FORD_MCP_ACCESS_CLIENT_ID: ${{ vars.FORD_MCP_ACCESS_CLIENT_ID }}
       OCI_MCP_HOST: ${{ vars.OCI_MCP_HOST }}
       OCI_DEPLOY_USER: ${{ vars.OCI_DEPLOY_USER }}
       OCI_MCP_SSH_PRIVATE_KEY: ${{ secrets.OCI_MCP_SSH_PRIVATE_KEY }}
@@ -48,6 +50,14 @@ jobs:
             echo 'Configure the production MCP HTTP bearer token Vault secret OCID.' >&2
             exit 1
           }
+          [[ "$FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET" =~ ^ocid1\.vaultsecret\. ]] || {
+            echo 'Configure the production Cloudflare Access client secret Vault secret OCID.' >&2
+            exit 1
+          }
+          [[ "$FORD_MCP_ACCESS_CLIENT_ID" =~ ^[A-Za-z0-9._-]+$ ]] || {
+            echo 'Configure the production Cloudflare Access client ID.' >&2
+            exit 1
+          }
           [[ -n "$OCI_MCP_HOST" && -n "$OCI_DEPLOY_USER" && -n "$OCI_MCP_SSH_PRIVATE_KEY" && -n "$OCI_SSH_KNOWN_HOSTS" ]] || {
             echo 'Configure the production MCP SSH connection.' >&2
             exit 1
@@ -62,7 +72,7 @@ jobs:
           printf '%s\n' "$OCI_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/ssh/known_hosts"
           chmod 0600 "$RUNNER_TEMP/ssh/emme-2" "$RUNNER_TEMP/ssh/known_hosts"
 
-      - name: Verify Instance Principal can read both configured secrets
+      - name: Verify Instance Principal can read runtime and public smoke secrets
         shell: bash
         run: |
           set -euo pipefail
@@ -71,7 +81,7 @@ jobs:
             -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" \
             -o StrictHostKeyChecking=yes \
             "$OCI_DEPLOY_USER@$OCI_MCP_HOST" \
-            "FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD='$FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD' FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN='$FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN' bash -se" <<'REMOTE'
+            "FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD='$FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD' FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN='$FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN' FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET='$FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET' FORD_MCP_ACCESS_CLIENT_ID='$FORD_MCP_ACCESS_CLIENT_ID' bash -se" <<'REMOTE'
           set -euo pipefail
           oci_bin=/usr/local/bin/oci
           [[ -x "$oci_bin" ]] || {
@@ -87,17 +97,23 @@ jobs:
           }
           postgres_b64="$(read_secret "$FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD")"
           mcp_token_b64="$(read_secret "$FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN")"
-          POSTGRES_SECRET_B64="$postgres_b64" MCP_TOKEN_SECRET_B64="$mcp_token_b64" python3 - <<'PY'
+          cf_access_secret_b64="$(read_secret "$FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET")"
+          POSTGRES_SECRET_B64="$postgres_b64" MCP_TOKEN_SECRET_B64="$mcp_token_b64" CLOUDFLARE_ACCESS_CLIENT_SECRET_B64="$cf_access_secret_b64" python3 - <<'PY'
           import base64
           import os
 
-          for key in ("POSTGRES_SECRET_B64", "MCP_TOKEN_SECRET_B64"):
+          for key in (
+              "POSTGRES_SECRET_B64",
+              "MCP_TOKEN_SECRET_B64",
+              "CLOUDFLARE_ACCESS_CLIENT_SECRET_B64",
+          ):
               decoded = base64.b64decode(os.environ[key], validate=True)
               if not decoded:
                   raise SystemExit("OCI Vault returned an empty runtime secret")
           PY
-          unset postgres_b64 mcp_token_b64
-          echo 'Vault access passed for both runtime secret mappings.'
+          unset postgres_b64 mcp_token_b64 cf_access_secret_b64
+          [[ "$FORD_MCP_ACCESS_CLIENT_ID" =~ ^[A-Za-z0-9._-]+$ ]]
+          echo 'Vault access passed for runtime and public smoke secret mappings.'
           REMOTE
 
       - name: Summarize read-only checks
@@ -107,7 +123,7 @@ jobs:
           {
             echo '### MCP Runtime Vault Preflight'
             echo "- Source: $GITHUB_SHA"
-            echo '- emme-2 SSH and Instance Principal Vault access: checked'
+            echo '- emme-2 SSH and Instance Principal Vault access for database, MCP, and Cloudflare Access secrets: checked'
             echo '- Secret values printed or persisted: no'
             echo '- Backup, migration, container startup, and route switch: not run'
           } >> "$GITHUB_STEP_SUMMARY"
