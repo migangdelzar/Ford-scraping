@@ -231,7 +231,7 @@ jobs:
             }
           fi
       - name: Deploy using the shared OCI action
-        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@71902d4c37cd53fa4fcc4368000588de1036d267
+        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@a9045317cbe5b29fac5c0483c8aa192d696532e9
         with:
           target: ford-mcp
           operation: ${{ needs.verify.outputs.operation }}
