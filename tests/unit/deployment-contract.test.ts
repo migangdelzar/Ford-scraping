@@ -95,6 +95,15 @@ describe('scheduler release contract', () => {
 });
 
 describe('MCP release workflow contract', () => {
+  it('recognizes GitHub Actions workflow paths returned by the runs API', () => {
+    const workflow = readFileSync(releaseWorkflowPath, 'utf8');
+
+    expect(workflow).toContain('.path == ".github/workflows/release-all.yml"');
+    expect(workflow).not.toContain(
+      '(.path | startswith(".github/workflows/release-all.yml@"))',
+    );
+  });
+
   it('accepts only an explicit operation and full source SHA', () => {
     const workflow = readFileSync(releaseWorkflowPath, 'utf8');
 

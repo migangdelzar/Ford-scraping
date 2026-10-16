@@ -93,7 +93,7 @@ jobs:
             coordinator_attempt="${RELEASE_REQUEST_ID##*-}"
             coordinator_run="$(gh api "repos/migangdelzar/Ford-uruapan/actions/runs/${coordinator_run_id}")"
             jq -e --arg attempt "${coordinator_attempt}" \
-              '(.path | startswith(".github/workflows/release-all.yml@")) and
+              '.path == ".github/workflows/release-all.yml" and
                .event == "workflow_dispatch" and .head_branch == "main" and
                .status == "in_progress" and (.run_attempt | tostring) == $attempt' \
               <<<"${coordinator_run}" >/dev/null || {
