@@ -282,6 +282,7 @@ function compactVehicle(value: unknown, detailLimit = 8): unknown {
     vehicle.technical_sheet_url ?? vehicle.technicalSheetUrl;
   const priceSourceUrl =
     vehicle.price_source_url ?? vehicle.priceSourceUrl ?? sourceUrl;
+  const observedAt = vehicle.crawled_at ?? vehicle.crawledAt;
   const defaultFactSource = technicalSheetUrl ?? modelPageUrl;
 
   const specifications = Array.isArray(vehicle.specifications)
@@ -417,6 +418,7 @@ function compactVehicle(value: unknown, detailLimit = 8): unknown {
     price: vehicle.price,
     priceDisplay: priceDisplay(vehicle.price, vehicle.currency ?? 'MXN'),
     currency: vehicle.currency,
+    observedAt,
     category: vehicle.category,
     ...(priceSourceUrl && priceSourceUrl !== modelPageUrl
       ? {priceSourceUrl}
@@ -480,6 +482,7 @@ function compactVehicleSearch(value: unknown): unknown {
         year: vehicle.modelYear ?? vehicle.model_year,
         price: vehicle.price,
         currency: 'MXN',
+        observedAt: vehicle.crawledAt ?? vehicle.crawled_at,
         category: vehicle.category,
         modelPageUrl,
         ...(priceSourceUrl && priceSourceUrl !== modelPageUrl
