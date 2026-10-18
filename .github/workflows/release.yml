@@ -221,7 +221,7 @@ jobs:
       packages: read
     steps:
       - name: Deploy private scheduler through the shared OCI action
-        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@c6dd161a75a2864265972f342e8cc64ded9a6d87
+        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@8d8d3999dc9cd5136edf2379d16e33879dc65d12
         with:
           target: ford-scraper-scheduler
           operation: ${{ needs.verify.outputs.operation }}
@@ -237,6 +237,7 @@ jobs:
           remote-root: /opt/ford-uruapan
           backup-host: ${{ vars.OCI_DATA_DEPLOY_HOST }}
           backup-user: ${{ vars.OCI_DATA_DEPLOY_USER }}
+          secrets-provider: oci-vault
 
   release-result:
     name: Record release artifact and deployment identity
