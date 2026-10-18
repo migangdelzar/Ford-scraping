@@ -4,8 +4,6 @@ import {loadRuntimeEnvironment} from './secrets/runtime-secrets.js';
 import {runMigrations} from './storage/database.js';
 import {createApplication} from './composition-root.js';
 import {buildApiApp} from './api/app.js';
-import {serveMcpStdio} from './mcp/server.js';
-import {startMcpHttpServer} from './mcp/http.js';
 import {
   crawlCatalog,
   crawlTargets,
@@ -17,6 +15,7 @@ import {EmbeddingWorker} from './embeddings/worker.js';
 import {createEmbeddingProvider} from './embeddings/provider.js';
 import cron from 'node-cron';
 import {DailySyncScheduler} from './scheduler.js';
+import {syncCommandExitCode} from './cli-sync-result.js';
 
 function option(name: string, fallback: number): number {
   const value = process.argv
@@ -28,7 +27,7 @@ function option(name: string, fallback: number): number {
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? 'help';
-  const environment = await loadRuntimeEnvironment(process.env, {command});
+  const environment = await loadRuntimeEnvironment(process.env);
   const config = loadConfig(environment);
 
   if (command === 'migrate') {
@@ -38,46 +37,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (command === 'mcp-http' && !config.mcpHttp.bearerToken) {
-    throw new Error(
-      'MCP_HTTP_BEARER_TOKEN is required when starting the MCP HTTP server',
-    );
-  }
-
   const application = createApplication(config);
 
   if (command === 'api') {
     const app = buildApiApp(application.apiServices);
     await app.listen({host: config.http.host, port: config.http.port});
-    return;
-  }
-
-  if (command === 'mcp') {
-    const handle = serveMcpStdio(application.mcpServices);
-    const close = async () => {
-      await handle.close();
-      await application.close();
-    };
-    process.once('SIGINT', () => void close());
-    process.once('SIGTERM', () => void close());
-    return;
-  }
-
-  if (command === 'mcp-http') {
-    const handle = await startMcpHttpServer(
-      application.mcpServices,
-      config.mcpHttp,
-    );
-    const address = handle.address();
-    console.error(
-      `MCP HTTP server listening on http://${address.host}:${address.port}/mcp`,
-    );
-    const close = async () => {
-      await handle.close();
-      await application.close();
-    };
-    process.once('SIGINT', () => void close());
-    process.once('SIGTERM', () => void close());
     return;
   }
 
@@ -199,8 +163,9 @@ async function main(): Promise<void> {
       maxPages: option('max-pages', config.crawl.maxPages),
       embeddingLimit: option('embedding-limit', 100),
     });
-    console.error(JSON.stringify(summary, null, 2));
+    console.log(JSON.stringify(summary));
     await application.close();
+    process.exitCode = syncCommandExitCode(summary);
     return;
   }
 
@@ -251,7 +216,7 @@ async function main(): Promise<void> {
   }
 
   console.error(
-    'Commands: migrate | crawl | crawl-comparisons | ingest | refresh-offer-documents | sync | scheduler | sync-financing | embed | api | mcp | mcp-http',
+    'Commands: migrate | crawl | crawl-comparisons | ingest | refresh-offer-documents | sync | scheduler | sync-financing | embed | api',
   );
   await application.close();
 }

@@ -19,13 +19,6 @@ describe('loadConfig', () => {
     expect(config.sync.schedule).toBe('0 12 1 * *');
     expect(config.sync.timezone).toBe('America/Mexico_City');
     expect(config.langfuse.enabled).toBe(false);
-    expect(config.mcpHttp).toEqual({
-      host: '127.0.0.1',
-      port: 3001,
-      bearerToken: undefined,
-      allowedOrigins: [],
-      allowedHosts: ['127.0.0.1', 'localhost'],
-    });
   });
 
   it('loads optional Langfuse configuration when credentials are present', () => {
@@ -59,28 +52,5 @@ describe('loadConfig', () => {
         EMBEDDING_DIMENSIONS: '768',
       }),
     ).toThrow(/1024/);
-  });
-
-  it('loads protected MCP HTTP configuration', () => {
-    const config = loadConfig({
-      DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/ford',
-      FORD_BASE_URL: 'https://www.forduruapan.mx',
-      EMBEDDING_PROVIDER: 'ollama',
-      EMBEDDING_DIMENSIONS: '1024',
-      MCP_HTTP_HOST: '127.0.0.1',
-      MCP_HTTP_PORT: '3010',
-      MCP_HTTP_BEARER_TOKEN: 'test-token',
-      MCP_HTTP_ALLOWED_ORIGINS:
-        'https://assistant.example, https://admin.example',
-      MCP_HTTP_ALLOWED_HOSTS: '127.0.0.1, mcp.example.com',
-    });
-
-    expect(config.mcpHttp).toEqual({
-      host: '127.0.0.1',
-      port: 3010,
-      bearerToken: 'test-token',
-      allowedOrigins: ['https://assistant.example', 'https://admin.example'],
-      allowedHosts: ['127.0.0.1', 'mcp.example.com'],
-    });
   });
 });
