@@ -345,3 +345,15 @@ A fresh-database integration can pass while an already-migrated install misses v
 - [x] Run migrations on a disposable `ford_test` DB, then PostgreSQL integration: 24/24 passed, including the new versioned read views and migrations 023–025.
 - [x] Update README integration steps to use and migrate only a dedicated `_test` database; record the blank-database startup race in `tasks/lessons.md`.
 - [ ] Publish coordinated branches and perform the protected manual monthly sync, scheduler cutover, and production verification. GitHub token/API access is currently failing; retain the current scheduler until that protected run succeeds.
+
+## MÍA Phase 1 catalog ownership scope (2026-10-18)
+
+- [x] Keep Ford-scraping as catalog schema/migration owner, ingestion writer, and monthly scheduler; the Node MCP runtime/client is retired from the candidate source.
+- [x] Use Ford Service's in-process Spring AI tools and direct read-only adapter as the customer tool path. Node-to-Java/MCP parity is explicitly out of scope and is not a scraper release gate.
+- [ ] Publish the scraper and coordinated Service/Web changes through protected workflows; verify backup-gated monthly sync and exactly one intended scheduler on emme-1/emme-2 before retiring deployed legacy MCP resources.
+
+Current evidence: scraper unit/lint/build/container contracts and PostgreSQL migration-backed views passed in the disposable test database. No production host, scheduler, or OCI resource was changed. The local branch remains three commits ahead of `origin/main`; GitHub API DNS/auth is unavailable in this runtime.
+
+### Publication recheck (2026-10-18)
+
+- [ ] Reconcile/publish commit `f4f1880` and the MÍA catalog ownership scope update through the protected PR/release path. The branch has unpushed feature commits; local `gh auth status` reports an invalid token and `api.github.com` DNS lookup fails. The release-coordinator App key path is configured in the user's shell file with mode `0600`, but network access is required to mint an installation token. No push, scheduler change, or production release occurred; keep the current scheduler active.
