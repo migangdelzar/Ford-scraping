@@ -66,7 +66,7 @@ export function createLangfuseTelemetry(
       otelSpan.name.startsWith('search.') || isDefaultExportSpan(otelSpan),
   });
   const sdk = new NodeSDK({spanProcessors: [processor]});
-  const tracer = trace.getTracer('ford-uruapan-mcp');
+  const tracer = trace.getTracer('ford-uruapan-catalog');
 
   return {
     enabled: true,
@@ -75,7 +75,7 @@ export function createLangfuseTelemetry(
       try {
         sdk.start();
       } catch {
-        // Observability must never prevent MCP/API startup.
+        // Observability must never prevent application startup.
       }
     },
     async shutdown(): Promise<void> {

@@ -5,7 +5,6 @@ import {
 } from '../../src/secrets/runtime-secrets.js';
 
 const databaseSecret = 'ocid1.vaultsecret.oc1..database';
-const bearerSecret = 'ocid1.vaultsecret.oc1..bearer';
 
 function fakeSecretReader(values: Record<string, string>) {
   const requests: string[] = [];
@@ -38,7 +37,6 @@ describe('resolveRuntimeEnvironment', () => {
     const source = {
       FORD_SECRETS_PROVIDER: 'oci-vault',
       FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: databaseSecret,
-      FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN: bearerSecret,
       DATABASE_HOST: 'postgres',
       DATABASE_PORT: '5432',
       DATABASE_USER: 'ford',
@@ -46,27 +44,21 @@ describe('resolveRuntimeEnvironment', () => {
     };
     const reader = fakeSecretReader({
       [databaseSecret]: 'db-password',
-      [bearerSecret]: 'mcp-token',
     });
 
-    const resolved = await resolveRuntimeEnvironment(source, reader, {
-      command: 'mcp-http',
-    });
+    const resolved = await resolveRuntimeEnvironment(source, reader);
 
     expect(resolved.DATABASE_URL).toBe(
       'postgres://ford:db-password@postgres:5432/ford_service',
     );
-    expect(resolved.MCP_HTTP_BEARER_TOKEN).toBe('mcp-token');
-    expect(reader.requests).toEqual([databaseSecret, bearerSecret]);
+    expect(reader.requests).toEqual([databaseSecret]);
   });
 
   it('fails closed when a required Vault mapping is missing', async () => {
     const reader = fakeSecretReader({});
 
     await expect(
-      resolveRuntimeEnvironment({FORD_SECRETS_PROVIDER: 'oci-vault'}, reader, {
-        command: 'mcp-http',
-      }),
+      resolveRuntimeEnvironment({FORD_SECRETS_PROVIDER: 'oci-vault'}, reader),
     ).rejects.toThrow(
       'Required OCI Vault mapping is missing: POSTGRES_PASSWORD',
     );
@@ -91,25 +83,6 @@ describe('resolveRuntimeEnvironment', () => {
       'postgres://ford:p%40ss%3Aword@postgres:5432/ford_service',
     );
   });
-
-  it('does not fetch the MCP bearer token for the scheduler process', async () => {
-    const source = {
-      FORD_SECRETS_PROVIDER: 'oci-vault',
-      FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: databaseSecret,
-      FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN: bearerSecret,
-      DATABASE_HOST: 'postgres',
-      DATABASE_USER: 'ford',
-      DATABASE_NAME: 'ford_service',
-    };
-    const reader = fakeSecretReader({[databaseSecret]: 'db-password'});
-
-    const resolved = await resolveRuntimeEnvironment(source, reader, {
-      command: 'scheduler',
-    });
-
-    expect(resolved.MCP_HTTP_BEARER_TOKEN).toBeUndefined();
-    expect(reader.requests).toEqual([databaseSecret]);
-  });
 });
 
 describe('loadRuntimeEnvironment', () => {
@@ -125,10 +98,7 @@ describe('loadRuntimeEnvironment', () => {
   });
 
   it('creates and closes the configured OCI reader for Vault mode', async () => {
-    const reader = fakeSecretReader({
-      [databaseSecret]: 'db-password',
-      [bearerSecret]: 'mcp-token',
-    });
+    const reader = fakeSecretReader({[databaseSecret]: 'db-password'});
     const close = vi.fn();
     const createReader = vi.fn(async () => ({...reader, close}));
 
@@ -136,15 +106,14 @@ describe('loadRuntimeEnvironment', () => {
       {
         FORD_SECRETS_PROVIDER: 'oci-vault',
         FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: databaseSecret,
-        FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN: bearerSecret,
         DATABASE_HOST: 'postgres',
         DATABASE_USER: 'ford',
         DATABASE_NAME: 'ford_service',
       },
-      {command: 'mcp-http', createReader},
+      {createReader},
     );
 
-    expect(result.MCP_HTTP_BEARER_TOKEN).toBe('mcp-token');
+    expect(result.POSTGRES_PASSWORD).toBe('db-password');
     expect(createReader).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
   });

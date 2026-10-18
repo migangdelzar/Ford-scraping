@@ -3,11 +3,7 @@ export interface RuntimeSecretReader {
   close?(): void;
 }
 
-export interface ResolveRuntimeEnvironmentOptions {
-  command?: string;
-}
-
-export interface LoadRuntimeEnvironmentOptions extends ResolveRuntimeEnvironmentOptions {
+export interface LoadRuntimeEnvironmentOptions {
   createReader?: () => Promise<RuntimeSecretReader>;
 }
 
@@ -15,10 +11,6 @@ const secretMappings = [
   {
     target: 'POSTGRES_PASSWORD',
     reference: 'FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD',
-  },
-  {
-    target: 'MCP_HTTP_BEARER_TOKEN',
-    reference: 'FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN',
   },
   {
     target: 'LANGFUSE_SECRET_KEY',
@@ -33,7 +25,6 @@ const secretMappings = [
 export async function resolveRuntimeEnvironment(
   environment: NodeJS.ProcessEnv,
   reader: RuntimeSecretReader,
-  options: ResolveRuntimeEnvironmentOptions = {},
 ): Promise<NodeJS.ProcessEnv> {
   const provider = environment.FORD_SECRETS_PROVIDER ?? 'environment';
   if (provider === 'environment') return {...environment};
@@ -45,7 +36,7 @@ export async function resolveRuntimeEnvironment(
   const resolved = {...environment};
   try {
     for (const mapping of secretMappings) {
-      const required = isRequired(mapping.target, environment, options.command);
+      const required = isRequired(mapping.target, environment);
       if (!required) continue;
 
       const secretId = environment[mapping.reference]?.trim();
@@ -92,16 +83,14 @@ export async function loadRuntimeEnvironment(
       return createOciVaultSecretReader();
     });
   const reader = await createReader();
-  return resolveRuntimeEnvironment(environment, reader, options);
+  return resolveRuntimeEnvironment(environment, reader);
 }
 
 function isRequired(
   target: (typeof secretMappings)[number]['target'],
   environment: NodeJS.ProcessEnv,
-  command?: string,
 ): boolean {
   if (target === 'POSTGRES_PASSWORD') return true;
-  if (target === 'MCP_HTTP_BEARER_TOKEN') return command === 'mcp-http';
   if (target === 'LANGFUSE_SECRET_KEY') {
     return Boolean(environment.LANGFUSE_PUBLIC_KEY);
   }

@@ -18,11 +18,6 @@ const envSchema = z.object({
   LANGFUSE_ENVIRONMENT: z.string().min(1).default('development'),
   HTTP_HOST: z.string().default('0.0.0.0'),
   HTTP_PORT: z.coerce.number().int().positive().default(3000),
-  MCP_HTTP_HOST: z.string().default('127.0.0.1'),
-  MCP_HTTP_PORT: z.coerce.number().int().positive().default(3001),
-  MCP_HTTP_BEARER_TOKEN: z.string().min(1).optional(),
-  MCP_HTTP_ALLOWED_ORIGINS: z.string().default(''),
-  MCP_HTTP_ALLOWED_HOSTS: z.string().default('127.0.0.1,localhost'),
 });
 
 export interface AppConfig {
@@ -54,20 +49,6 @@ export interface AppConfig {
     host: string;
     port: number;
   };
-  mcpHttp: {
-    host: string;
-    port: number;
-    bearerToken?: string;
-    allowedOrigins: string[];
-    allowedHosts: string[];
-  };
-}
-
-function parseList(value: string): string[] {
-  return value
-    .split(',')
-    .map(item => item.trim())
-    .filter(Boolean);
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -116,13 +97,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     http: {
       host: parsed.HTTP_HOST,
       port: parsed.HTTP_PORT,
-    },
-    mcpHttp: {
-      host: parsed.MCP_HTTP_HOST,
-      port: parsed.MCP_HTTP_PORT,
-      bearerToken: parsed.MCP_HTTP_BEARER_TOKEN,
-      allowedOrigins: parseList(parsed.MCP_HTTP_ALLOWED_ORIGINS),
-      allowedHosts: parseList(parsed.MCP_HTTP_ALLOWED_HOSTS),
     },
   };
 }

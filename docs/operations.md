@@ -2,10 +2,10 @@
 
 ## Ingestion flow
 
-1. `crawl` starts at `/Todos/`, follows allowed public links, and stores raw HTML plus content hashes. `crawl-comparisons` refreshes the distinct `/Comparativo/` trim routes already found on stored model pages.
-2. `ingest` parses changed page types and upserts structured facts, section documents, and provenance. Technical-sheet ingestion splits factual `vehicle_profile` evidence into small source-backed chunks; semantic-only search terms are added only when matching source facts exist. Grouped values remain unassigned to trims, and stale chunks are pruned after reingestion.
+1. `crawl` starts at `/Todos/`, follows allowed public links, and stores raw HTML plus content hashes. `crawl-comparisons` refreshes distinct `/Comparativo/` routes already found on stored model pages.
+2. `ingest` parses changed pages and upserts structured facts, documents, and provenance. Technical-sheet ingestion keeps factual vehicle evidence in source-backed chunks; grouped values remain unassigned to trims and stale chunks are pruned after reingestion.
 3. `refresh-offer-documents` rebuilds semantic profiles for stored offers without calling Ford; `embed` batches pending documents through the configured OpenAI-compatible endpoint.
-4. `api` and `mcp` expose the shared hybrid search service.
+4. `api` exposes the shared hybrid-search service. Ford Service owns customer AI tool execution through in-process Spring AI callbacks.
 
 All writes are idempotent. Re-running ingestion for unchanged content does not reset ready embeddings. Changed document content reuses its logical document key and returns to `pending`.
 
@@ -14,8 +14,8 @@ All writes are idempotent. Re-running ingestion for unchanged content does not r
 - The crawler never submits forms.
 - URL policy rejects quote, contact, appointment, and form routes.
 - Raw HTML is retained so parsers can be improved and replayed.
-- User-facing price answers must include their source URL and crawl timestamp.
-- Catalog prices and promotions can become stale; `get_catalog_status` exposes freshness counts.
+- Catalog prices and promotions can become stale; the catalog status view exposes freshness counts.
+- Ford-scraping owns catalog writes and migrations. Ford Service receives read-only access.
 
 ## Hybrid search behavior
 
@@ -23,26 +23,14 @@ Hard model, year, price, category, and financing-term filters are applied to rel
 
 If embeddings are unavailable, search reports `semanticSearch: "unavailable"` and returns deterministic/keyword results rather than claiming semantic ranking.
 
-Vector input comes from `ford.documents.semantic_content`; `content` remains the exact source-backed text used by keyword search and answer context. Vehicle profiles use short technical-sheet chunks with conservative query terms derived from the same facts; promotions and trim-versus-competitor comparisons have separate semantic narratives. Numeric prices, validity dates, and exact attributes stay in relational fields or JSONB. Documents with empty semantic content are skipped by vector indexing (for example, a price-only chunk). Images are direct URLs and metadata only; they are never embedded.
+## MÍA tool runtime transition
 
-## MCP
+The Node MCP server, CLI commands, container smoke, release workflow, and runtime token mapping are removed from this branch. The Node catalog writer, migrations, REST API, scheduler image, and catalog read views remain. Ford Service has local Spring AI callback implementations behind `FORD_CATALOG_TOOLS_ENABLED`; this flag remains off until its catalog datasource and tool behavior are verified. A temporary loss of customer catalog tools is accepted during this transition.
 
-The local MCP command uses stdio through the official TypeScript SDK. MCP tools are read-only adapters over shared services. Vehicle detail links come from model-page sources attached to stored variants; trim comparison links come from stored comparison records. `compare_trims` compares exact trims within one model-year and excludes malformed yes/no values for quantitative fields. `compare_model_years` reports price changes and only compares differing single-valued facts, leaving grouped or placeholder facts out of deltas. `compare_vehicles` handles multiple Ford nameplates or powertrain variants. `get_variant_comparisons` returns source-published Ford-versus-competitor tables with `paired_facts`; mismatched source rows remain under `excluded_source_rows` with warnings. Missing data remains unknown; it is never treated as a feature removal.
+This repository change does not stop an already-running OCI container or remove Cloudflare Tunnel routes, GitHub environment variables, OCI Vault secrets, or IAM grants. Keep those resources available for rollback until the Service path is verified and a separate production cutover is performed.
 
 ## Production runtime secrets
 
-Production containers can use `FORD_SECRETS_PROVIDER=oci-vault`. In that mode the process obtains OCI Instance Principal credentials on the VM and reads current secret values at startup. GitHub Actions passes only the nonsecret Vault secret OCIDs into the protected deployment; secret values are not sent through the runner. The default `environment` provider preserves local development and does not contact OCI.
+The catalog scheduler can use `FORD_SECRETS_PROVIDER=oci-vault`. In that mode it obtains OCI Instance Principal credentials on the VM and reads its database password from Vault at startup. GitHub Actions passes only a nonsecret Vault secret OCID; secret values are not sent through the runner. The default `environment` provider is for local development and does not contact OCI.
 
-Ford MCP on emme-2 needs these production environment variables:
-
-| GitHub production variable | Vault secret |
-| --- | --- |
-| `FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD` | `ford-prod-postgres-password` |
-| `FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN` | `ford-prod-mcp-http-bearer-token` |
-| `FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET` | Cloudflare Access service-token secret used for the public MCP smoke |
-
-All references must be OCI Vault secret OCIDs, and the emme-2 instance principal must have `read secret-bundles` access scoped to those names in the configured Vault. Configure them in the Ford-scraping `production` environment alongside the nonsecret `FORD_MCP_ACCESS_CLIENT_ID`; do not place secret contents in GitHub variables or the MCP `.env` file. MCP HTTP resolves the bearer token and database password; the monthly scheduler resolves only the database password. The deployment smoke reads the bearer and Cloudflare Access secret from Vault on emme-2. Missing mappings, denied access, or an unsupported secret payload stops startup or the smoke with a value-free error.
-
-Run the read-only `MCP Runtime Vault Preflight` from `main` after updating the three secret references. It verifies that emme-2's Instance Principal can read the database, MCP bearer, and Cloudflare Access secrets without printing or persisting their values. Review the dynamic group and least-privilege policy, then dispatch a protected candidate deployment to verify startup, backup, migration, public protocol smoke, and rollback.
-
-The production environment also needs `PRODUCTION_DEPLOY_ENABLED=true` to permit release workflow deployment after readiness checks. The deployment workflow remains behind the required `production` reviewer.
+The former MCP bearer and Cloudflare Access secrets are no longer consumed by this Node runtime. Do not delete their OCI/GitHub entries as part of this code change; remove them only after confirming no deployed service or rollback workflow uses them.

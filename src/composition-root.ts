@@ -31,7 +31,6 @@ import {PostgresAdvisoryLock} from './storage/sync-lock.js';
 import {EmbeddingWorker} from './embeddings/worker.js';
 import {createLangfuseTelemetry} from './observability/langfuse.js';
 import type {ApiServices} from './api/app.js';
-import type {McpServices} from './mcp/server.js';
 
 export function createApplication(config: AppConfig) {
   const pool = createPool(config.databaseUrl);
@@ -121,17 +120,6 @@ export function createApplication(config: AppConfig) {
     vehicles,
     health: () => catalogStatus.status(),
   };
-  const mcpServices: McpServices = {
-    search,
-    vehicles,
-    provenance,
-    links,
-    promotions,
-    offers: offerSearch,
-    catalog: catalogStatus,
-    comparisons,
-  };
-
   return {
     pool,
     telemetry,
@@ -156,6 +144,5 @@ export function createApplication(config: AppConfig) {
     comparisons,
     catalogStatus,
     apiServices,
-    mcpServices,
   };
 }

@@ -297,3 +297,63 @@ Results: comparison requests could not reach `compare_trims`, `compare_model_yea
 - [x] Rebuild/restart local MCP and verify clean links from live tools.
 
 Results: backup `backups/ford-20261009T101630.207Z.dump`; migrations 020 and 021 applied. DB audit found zero selector URLs across Ford text/JSONB columns. MCP lookup, model-year comparison, and competitor comparison returned clean Comparativo routes. Focused tests passed (59); TypeScript build passed.
+
+## Monthly GitHub catalog sync cutover (2026-10-17)
+
+Spec: `/private/tmp/ford-mia-phase1-design/docs/superpowers/specs/2026-10-17-monthly-catalog-sync-workflow-design.md` (approved by user).
+Plan: `/private/tmp/ford-mia-phase1-design/docs/superpowers/plans/2026-10-17-monthly-catalog-sync-workflow.md`.
+
+- [x] Add typed sync result output and nonzero CLI exit for page/embedding partial failures; keep full sync and unchanged-page behavior.
+- [x] Add focused CLI tests for success and each partial-failure counter; existing service test covers unchanged-page, used inventory, financing, embeddings, and lock behavior.
+- [x] Add Ansible one-shot sync runner that reads the active immutable image from host release state, validates same-day verified backup manifest/artifacts, runs on the private data network with host DB config, and returns only bounded counters.
+- [x] Add Ansible/workflow contract tests for backup gate, digest pinning, network, no migrations, result redaction, and exit propagation. Trigger deactivation/rollback remains open.
+- [x] Add protected monthly/manual GitHub Actions workflow (18:17 UTC on day 1), minimal permissions, default-branch restriction, serialized concurrency, summary, SSH cleanup, and no runner DB credentials. Scheduled execution is gated until cutover.
+- [x] Add a protected reversible scheduler `disable` release operation that keeps its immutable digest for rollback; remove scheduler startup from MCP deployment paths.
+- [ ] Execute the scheduler disable release only after the workflow has passed a protected manual production run; retain the immutable image and verify rollback path.
+- [x] Run Node full unit/build and deployment/workflow contract checks; validate backup rejection and partial-sync failure on disposable infrastructure.
+- [ ] Complete production preflight and protected rollout, verify scheduled workflow and old scheduler state, then mark cutover complete.
+
+### Current findings
+
+- Node `sync` emits bounded JSON counters and exits nonzero for `pagesFailed > 0` or `embeddingFailures > 0`; unit and disposable-database checks passed.
+- Production backup workflow runs at 04:30 UTC monthly and creates timestamped local manifests plus object-storage HEAD verification; the monthly sync is planned at 18:17 UTC.
+- Scheduler disable/rollback is implemented in the shared OCI action and pinned by the Service workflow, but the action commit is local and unpublished.
+- `gh auth status` reports an invalid token. No production manual run, scheduler disable, schedule enablement, host mutation, push, or release has occurred. Keep the old scheduler active until the protected manual workflow succeeds.
+
+### Latest local verification
+
+- [x] Node: `npm run test:unit` (142 tests), `npm run lint`, `npm run build`, and `node --test scripts/container-contract.test.mjs` passed.
+- [x] Service: Python contract suite (98 tests), `node --test scripts/workflow-contract.test.mjs` (36 tests), Ansible syntax, and disposable PostgreSQL/Ansible one-shot sync passed; partial page failure propagated and a bad backup blocked Docker.
+- [x] Shared action: 23 tests, shell syntax, Ansible syntax, and `git diff --check` passed; local commits `323db0f` and `c6dd161`.
+- [ ] Publish coordinated branches and perform protected production preflight/cutover after GitHub auth is restored.
+
+## Catalog read-contract forward migration (2026-10-17)
+
+- [x] Add failing contract for parity projections arriving through a new migration while migration 022 remains immutable; red observed, then 6/6 focused tests passed.
+- [x] Add migration 023 with variant facts and expanded offer/promotion projections; preserve the original `promotions_v1` columns in order and append new fields.
+- [x] Apply migrations 023-025 to the retained restored snapshot; Java snapshot suite passed 3/3 with zero skips as a temporary SELECT-only role (SELECT allowed, INSERT denied); removed role and grants.
+- [x] Run clean-database PostgreSQL read-view integration for migrations 001-025 (6/6); removed the exact disposable test database.
+
+### Lesson
+
+A fresh-database integration can pass while an already-migrated install misses view edits made inside an applied migration. Treat migration files as immutable; prove upgrades by applying the next migration to a restored database with the prior version recorded.
+
+## Whole-plan local verification (2026-10-18)
+
+- [x] Remove the Node MCP runtime/client and MCP-only evaluation code; retain the catalog writer, migration owner, read-only REST contract, and scheduler image required by the monthly sync/rollback plan.
+- [x] Fresh Node lint, 147 unit tests, TypeScript build, and 5 container contracts passed.
+- [x] Run migrations on a disposable `ford_test` DB, then PostgreSQL integration: 24/24 passed, including the new versioned read views and migrations 023–025.
+- [x] Update README integration steps to use and migrate only a dedicated `_test` database; record the blank-database startup race in `tasks/lessons.md`.
+- [ ] Publish coordinated branches and perform the protected manual monthly sync, scheduler cutover, and production verification. GitHub token/API access is currently failing; retain the current scheduler until that protected run succeeds.
+
+## MÍA Phase 1 catalog ownership scope (2026-10-18)
+
+- [x] Keep Ford-scraping as catalog schema/migration owner, ingestion writer, and monthly scheduler; the Node MCP runtime/client is retired from the candidate source.
+- [x] Use Ford Service's in-process Spring AI tools and direct read-only adapter as the customer tool path. Node-to-Java/MCP parity is explicitly out of scope and is not a scraper release gate.
+- [ ] Publish the scraper and coordinated Service/Web changes through protected workflows; verify backup-gated monthly sync and exactly one intended scheduler on emme-1/emme-2 before retiring deployed legacy MCP resources.
+
+Current evidence: scraper unit/lint/build/container contracts and PostgreSQL migration-backed views passed in the disposable test database. No production host, scheduler, or OCI resource was changed. The local branch remains three commits ahead of `origin/main`; GitHub API DNS/auth is unavailable in this runtime.
+
+### Publication recheck (2026-10-18)
+
+- [ ] Reconcile/publish commit `f4f1880` and the MÍA catalog ownership scope update through the protected PR/release path. The branch has unpushed feature commits; local `gh auth status` reports an invalid token and `api.github.com` DNS lookup fails. The release-coordinator App key path is configured in the user's shell file with mode `0600`, but network access is required to mint an installation token. No push, scheduler change, or production release occurred; keep the current scheduler active.

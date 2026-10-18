@@ -1,21 +1,21 @@
-name: Release MCP to OCI
-run-name: ${{ format('Release MCP to OCI [{0}] {1} {2}', inputs.release_request_id || 'manual', inputs.version || 'rollback', inputs.source_sha || 'recorded') }}
+name: Release Ford scraper scheduler
+run-name: ${{ format('Release Ford scraper scheduler [{0}] {1} {2}', inputs.release_request_id || 'manual', inputs.version || 'rollback', inputs.source_sha || 'recorded') }}
 
 on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Validate this release workflow, publish/deploy a versioned release, or restore the prior image.
+        description: Deploy a verified scraper image, restore the prior image, or disable the old cron trigger.
         required: true
-        default: deploy
         type: choice
-        options: [validate, deploy, rollback]
+        options: [deploy, rollback, disable]
+        default: deploy
       version:
         description: Immutable annotated vMAJOR.MINOR.PATCH tag (deploy only).
         required: false
         type: string
       source_sha:
-        description: Full SHA targeted by the version tag (deploy only).
+        description: Full commit SHA targeted by the version tag (deploy only).
         required: false
         type: string
       release_request_id:
@@ -27,135 +27,111 @@ permissions:
   contents: read
 
 concurrency:
-  group: ford-mcp-production
+  group: ford-scraper-scheduler-production
   cancel-in-progress: false
 
 jobs:
-  contract:
-    name: Verify release contract without publishing
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require dispatch from main
-        env:
-          RELEASE_REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          [[ "${RELEASE_REF}" == 'refs/heads/main' ]] || {
-            echo 'Run Ford MCP releases from main.' >&2
-            exit 1
-          }
-      - name: Confirm release jobs enforce their own operation gates
-        run: echo "Release event contract accepted; publication and deployment remain separately gated."
-
   verify:
-    name: Verify release source
-    if: >-
-      github.event_name == 'workflow_dispatch' && inputs.operation != 'validate'
-    runs-on: ubuntu-latest
+    name: Verify versioned scraper source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       operation: ${{ steps.source.outputs.operation }}
       source_sha: ${{ steps.source.outputs.source_sha }}
       version: ${{ steps.source.outputs.version }}
       coordinator_dispatch: ${{ steps.source.outputs.coordinator_dispatch }}
-    permissions:
-      actions: read
-      contents: read
     steps:
       - name: Check out release tooling from main
         uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
-      - name: Resolve the verified release source
+      - name: Resolve and verify release tag and source SHA
         id: source
         env:
-          REQUESTED_OPERATION: ${{ inputs.operation }}
-          REQUESTED_SHA: ${{ inputs.source_sha }}
-          INPUT_VERSION: ${{ inputs.version }}
           RELEASE_REF: ${{ github.ref }}
-          RELEASE_ACTOR: ${{ github.actor }}
+          OPERATION: ${{ inputs.operation }}
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
           RELEASE_REQUEST_ID: ${{ inputs.release_request_id }}
+          RELEASE_ACTOR: ${{ github.actor }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "${RELEASE_REF}" == 'refs/heads/main' ]] || {
-            echo 'Run Ford MCP releases from main.' >&2
+          [[ "$RELEASE_REF" == 'refs/heads/main' ]] || {
+            echo 'Run scheduler releases from main.' >&2
             exit 1
           }
           coordinator_dispatch=false
-          if [[ -n "${RELEASE_REQUEST_ID}" ]]; then
-            [[ "${RELEASE_ACTOR}" == 'ford-release-coordinator[bot]' && "${RELEASE_REQUEST_ID}" =~ ^[0-9]+-[0-9]+$ ]] || {
+          if [[ -n "$RELEASE_REQUEST_ID" ]]; then
+            [[ "$RELEASE_ACTOR" == 'ford-release-coordinator[bot]' && "$RELEASE_REQUEST_ID" =~ ^[0-9]+-[0-9]+$ ]] || {
               echo 'Coordinator release request is not authorized.' >&2
               exit 1
             }
             coordinator_run_id="${RELEASE_REQUEST_ID%-*}"
             coordinator_attempt="${RELEASE_REQUEST_ID##*-}"
             coordinator_run="$(gh api "repos/migangdelzar/Ford-uruapan/actions/runs/${coordinator_run_id}")"
-            jq -e --arg attempt "${coordinator_attempt}" \
-              '.path == ".github/workflows/release-all.yml" and
-               .event == "workflow_dispatch" and .head_branch == "main" and
-               .status == "in_progress" and (.run_attempt | tostring) == $attempt' \
-              <<<"${coordinator_run}" >/dev/null || {
+            jq -e --arg attempt "$coordinator_attempt" \
+              '.path == ".github/workflows/release-all.yml" and .event == "workflow_dispatch" and .head_branch == "main" and .status == "in_progress" and (.run_attempt | tostring) == $attempt' \
+              <<<"$coordinator_run" >/dev/null || {
               echo 'Coordinator request does not identify an active release-all run on main.' >&2
               exit 1
             }
             coordinator_jobs="$(gh api "repos/migangdelzar/Ford-uruapan/actions/runs/${coordinator_run_id}/attempts/${coordinator_attempt}/jobs?per_page=100")"
             jq -e '.jobs | any(.name == "Approve and deploy selected releases in order" and .status == "in_progress")' \
-              <<<"${coordinator_jobs}" >/dev/null || {
+              <<<"$coordinator_jobs" >/dev/null || {
               echo 'Coordinator release job is not active; approval may not have been granted.' >&2
               exit 1
             }
             coordinator_dispatch=true
           fi
           echo "coordinator_dispatch=${coordinator_dispatch}" >> "$GITHUB_OUTPUT"
-          operation="${REQUESTED_OPERATION}"
-          source_sha="${REQUESTED_SHA}"
-          version="${INPUT_VERSION}"
-          if [[ "${operation}" == "rollback" ]]; then
-            source_sha=recorded-rollback
+          if [[ "$OPERATION" == 'rollback' ]]; then
+            echo 'operation=rollback' >> "$GITHUB_OUTPUT"
+            echo 'source_sha=recorded-rollback' >> "$GITHUB_OUTPUT"
+            echo 'version=' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          if [[ "${operation}" == "deploy" ]]; then
-            [[ "${version}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
-              echo "Deploy requires a canonical vMAJOR.MINOR.PATCH version." >&2
-              exit 1
-            }
-            [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || {
-              echo "Deploy requires a full source SHA." >&2
-              exit 1
-            }
-            git fetch --no-tags origin "refs/tags/${version}:refs/tags/${version}"
-            [[ "$(git cat-file -t "refs/tags/${version}")" == tag ]] || {
-              echo "Release version must be an annotated tag." >&2
-              exit 1
-            }
-            [[ "$(git rev-parse "refs/tags/${version}^{commit}")" == "${source_sha}" ]] || {
-              echo "Release tag target does not match the selected source SHA." >&2
-              exit 1
-            }
-            git merge-base --is-ancestor "${source_sha}" refs/remotes/origin/main || {
-              echo "Release tag target is not reachable from main." >&2
-              exit 1
-            }
-            runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${source_sha}&event=push&status=success&per_page=100")"
-            jq -e --arg sha "${source_sha}" --arg version "${version}" \
-            '.workflow_runs | any(.head_sha == $sha and .head_branch == $version and .conclusion == "success")' \
-            <<<"${runs}" >/dev/null || {
-              echo "Version tag has no successful push CI run for its exact source SHA." >&2
-              exit 1
-            }
-          elif [[ "${operation}" != "rollback" ]]; then
-            echo "Unsupported release operation: ${operation}" >&2
+          if [[ "$OPERATION" == 'disable' ]]; then
+            echo 'operation=disable' >> "$GITHUB_OUTPUT"
+            echo 'source_sha=recorded-disable' >> "$GITHUB_OUTPUT"
+            echo 'version=' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo 'A canonical vMAJOR.MINOR.PATCH version is required.' >&2
             exit 1
-          fi
-          echo "operation=${operation}" >> "$GITHUB_OUTPUT"
-          echo "source_sha=${source_sha}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          }
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || {
+            echo 'A full source SHA is required.' >&2
+            exit 1
+          }
+          git fetch --no-tags origin "refs/tags/${VERSION}:refs/tags/${VERSION}"
+          [[ "$(git cat-file -t "refs/tags/${VERSION}")" == tag ]] || {
+            echo 'Release version must be an annotated tag.' >&2
+            exit 1
+          }
+          [[ "$(git rev-parse "refs/tags/${VERSION}^{commit}")" == "$SOURCE_SHA" ]] || {
+            echo 'Release tag target does not match the selected source SHA.' >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$SOURCE_SHA" refs/remotes/origin/main || {
+            echo 'Release tag target is not reachable from main.' >&2
+            exit 1
+          }
+          runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SOURCE_SHA}&event=push&status=success&per_page=100" --jq "[.workflow_runs[] | select(.head_branch == \"${VERSION}\")] | length")"
+          [[ "$runs" -gt 0 ]] || {
+            echo 'No successful scraper CI run exists for this version tag and source SHA.' >&2
+            exit 1
+          }
+          echo 'operation=deploy' >> "$GITHUB_OUTPUT"
+          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
   image:
-    name: Resolve immutable MCP image published by tagged CI
-    if: needs.verify.result == 'success' && needs.verify.outputs.operation == 'deploy'
+    name: Resolve and verify tagged scraper digest
     needs: verify
+    if: needs.verify.outputs.operation == 'deploy'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -166,161 +142,119 @@ jobs:
       digest: ${{ steps.image.outputs.digest }}
     steps:
       - name: Normalize GHCR image name
-        id: image-name
+        id: repository
         env:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - name: Log in to GHCR to resolve the tagged CI image
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Resolve and verify image published by tagged CI
+      - name: Resolve and verify version image digest
         id: image
         env:
-          IMAGE_REPOSITORY: ${{ steps.image-name.outputs.name }}
-          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          IMAGE_REPOSITORY: ${{ steps.repository.outputs.name }}
           VERSION: ${{ needs.verify.outputs.version }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tagged_image="${IMAGE_REPOSITORY}:${VERSION}"
-          docker pull "${tagged_image}" >/dev/null
-          digest_reference="$(docker image inspect --format '{{index .RepoDigests 0}}' "${tagged_image}")"
-          [[ "${digest_reference}" =~ ^ghcr\.io/[A-Za-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]] || {
-            echo 'Published MCP image did not resolve to an immutable digest.' >&2
+          docker pull "$tagged_image" >/dev/null
+          digest_reference="$(docker image inspect --format '{{index .RepoDigests 0}}' "$tagged_image")"
+          [[ "$digest_reference" =~ ^ghcr\.io/[A-Za-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]] || {
+            echo 'Published scraper image did not resolve to an immutable digest.' >&2
             exit 1
           }
           gh attestation verify "oci://${digest_reference}" \
-            --bundle-from-oci \
-            --repo "${GITHUB_REPOSITORY}" \
+            --repo "$GITHUB_REPOSITORY" \
             --source-ref "refs/tags/${VERSION}" \
-            --source-digest "${SOURCE_SHA}" \
+            --source-digest "$SOURCE_SHA" \
             --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/ci.yml"
-          digest="${digest_reference##*@}"
           echo "image=${digest_reference}" >> "$GITHUB_OUTPUT"
-          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "digest=${digest_reference##*@}" >> "$GITHUB_OUTPUT"
 
   production-readiness:
-    name: Require production release readiness
-    needs: verify
-    if: always() && needs.verify.result == 'success'
-    runs-on: ubuntu-latest
+    name: Require production runtime readiness
+    runs-on: ubuntu-24.04
     env:
       PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
       RUNTIME_VAULT_READY: ${{ vars.RUNTIME_VAULT_READY }}
+      FORD_SECRETS_PROVIDER: ${{ vars.FORD_SECRETS_PROVIDER }}
+      POSTGRES_PASSWORD_SECRET_OCID: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}
     steps:
-      - name: Fail clearly when a production gate is not ready
-        shell: bash
+      - name: Fail clearly when production runtime is not ready
         run: |
           set -euo pipefail
-          [[ "$PRODUCTION_DEPLOY_ENABLED" == 'true' ]] || {
-            echo 'Production MCP release blocked: set PRODUCTION_DEPLOY_ENABLED=true after production readiness review.' >&2
-            exit 1
-          }
-          [[ "$RUNTIME_VAULT_READY" == 'true' ]] || {
-            echo 'Production MCP release blocked: verify runtime OCI Vault consumers, then set RUNTIME_VAULT_READY=true.' >&2
-            exit 1
-          }
+          [[ "$PRODUCTION_DEPLOY_ENABLED" == 'true' ]] || { echo 'Production deploy gate is disabled.' >&2; exit 1; }
+          [[ "$RUNTIME_VAULT_READY" == 'true' && "$FORD_SECRETS_PROVIDER" == 'oci-vault' ]] || { echo 'Runtime Vault readiness is not confirmed.' >&2; exit 1; }
+          [[ "$POSTGRES_PASSWORD_SECRET_OCID" =~ ^ocid1[.]vaultsecret[.][A-Za-z0-9.]+$ ]] || { echo 'PostgreSQL password Vault reference is not configured.' >&2; exit 1; }
+
+  approval:
+    name: Approve scraper scheduler production change
+    needs: [verify, image, production-readiness]
+    if: >-
+      always() && needs.verify.result == 'success' &&
+      (needs.verify.outputs.operation != 'deploy' || needs.image.result == 'success') &&
+      needs.production-readiness.result == 'success' && needs.verify.outputs.coordinator_dispatch != 'true'
+    runs-on: ubuntu-24.04
+    environment: manual-release-approval
+    steps:
+      - run: echo 'Scraper scheduler release approved.'
 
   deploy:
-    name: Deploy or roll back Ford MCP
-    needs: [contract, verify, image, production-readiness, approval]
+    name: Deploy scheduler on emme-2
+    needs: [verify, image, production-readiness, approval]
     if: >-
-      always() && needs.contract.result == 'success' && needs.verify.result == 'success' &&
-      (needs.verify.outputs.operation == 'rollback' || needs.image.result == 'success') &&
+      always() && needs.verify.result == 'success' &&
+      (needs.verify.outputs.operation != 'deploy' || needs.image.result == 'success') &&
       needs.production-readiness.result == 'success' &&
       (needs.verify.outputs.coordinator_dispatch == 'true' || needs.approval.result == 'success') &&
-      vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
-      vars.RUNTIME_VAULT_READY == 'true'
-    runs-on: ubuntu-latest
+      vars.PRODUCTION_DEPLOY_ENABLED == 'true' && vars.RUNTIME_VAULT_READY == 'true'
     environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: read
-    env:
-      FORD_SECRETS_PROVIDER: ${{ vars.FORD_SECRETS_PROVIDER }}
-      FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}
-      FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}
-      FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET: ${{ vars.FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET }}
-      FORD_MCP_ACCESS_CLIENT_ID: ${{ vars.FORD_MCP_ACCESS_CLIENT_ID }}
     steps:
-      - name: Validate protected runtime Vault configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$FORD_SECRETS_PROVIDER" == 'oci-vault' ]] || {
-            echo 'MCP production deployment blocked: configure FORD_SECRETS_PROVIDER=oci-vault in the production environment.' >&2
-            exit 1
-          }
-          [[ -n "$FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD" && -n "$FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN" ]] || {
-            echo 'MCP production deployment blocked: configure both MCP OCI Vault secret OCIDs in the production environment.' >&2
-            exit 1
-          }
-          if [[ "${{ needs.verify.outputs.operation }}" == 'deploy' ]]; then
-            [[ "$FORD_MCP_ACCESS_CLIENT_ID" =~ ^[A-Za-z0-9._-]+$ \
-              && "$FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET" =~ ^ocid1\.vaultsecret\. ]] || {
-              echo 'MCP production deployment blocked: configure the public smoke Cloudflare Access client ID and Vault secret OCID.' >&2
-              exit 1
-            }
-          fi
-      - name: Deploy using the shared OCI action
-        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@a9045317cbe5b29fac5c0483c8aa192d696532e9
+      - name: Deploy private scheduler through the shared OCI action
+        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@8d8d3999dc9cd5136edf2379d16e33879dc65d12
         with:
-          target: ford-mcp
+          target: ford-scraper-scheduler
           operation: ${{ needs.verify.outputs.operation }}
-          image: ${{ needs.verify.outputs.operation == 'rollback' && '' || needs.image.outputs.image }}
+          image: ${{ needs.verify.outputs.operation != 'deploy' && '' || needs.image.outputs.image }}
           source-sha: ${{ needs.verify.outputs.source_sha }}
           host: ${{ vars.OCI_MCP_HOST }}
           user: ${{ vars.OCI_DEPLOY_USER }}
           ssh-private-key: ${{ secrets.OCI_MCP_SSH_PRIVATE_KEY }}
+          backup-ssh-private-key: ${{ secrets.OCI_DATA_SSH_PRIVATE_KEY }}
           ssh-known-hosts: ${{ secrets.OCI_SSH_KNOWN_HOSTS }}
           registry-username: ${{ github.repository_owner }}
-          registry-token: ${{ github.token }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
           remote-root: /opt/ford-uruapan
-          mcp-private-ip: ${{ vars.OCI_MCP_PRIVATE_IP }}
-          secrets-provider: ${{ vars.FORD_SECRETS_PROVIDER }}
-          postgres-password-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}
-          mcp-http-bearer-token-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_MCP_HTTP_BEARER_TOKEN }}
-          mcp-public-smoke-access-client-id: ${{ vars.FORD_MCP_ACCESS_CLIENT_ID }}
-          mcp-public-smoke-access-client-secret-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_FORD_MCP_ACCESS_CLIENT_SECRET }}
           backup-host: ${{ vars.OCI_DATA_DEPLOY_HOST }}
           backup-user: ${{ vars.OCI_DATA_DEPLOY_USER }}
-
-  approval:
-    name: Approve direct Ford MCP deployment
-    needs: [contract, verify, image, production-readiness]
-    if: >-
-      always() && needs.contract.result == 'success' && needs.verify.result == 'success' &&
-      (needs.verify.outputs.operation == 'rollback' || needs.image.result == 'success') &&
-      needs.production-readiness.result == 'success' &&
-      needs.verify.outputs.coordinator_dispatch != 'true'
-    runs-on: ubuntu-latest
-    environment: manual-release-approval
-    steps:
-      - name: Confirm direct Ford MCP deployment approval
-        run: echo 'Direct Ford MCP deployment approved.'
+          secrets-provider: oci-vault
 
   release-result:
     name: Record release artifact and deployment identity
     needs: [verify, image, production-readiness, deploy]
     if: >-
       always() && needs.verify.result == 'success' &&
-      (needs.verify.outputs.operation == 'rollback' || needs.image.result == 'success') &&
-      needs.production-readiness.result == 'success' &&
-      needs.deploy.result == 'success'
+      (needs.verify.outputs.operation != 'deploy' || needs.image.result == 'success') &&
+      needs.production-readiness.result == 'success' && needs.deploy.result == 'success'
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
     steps:
       - name: Write release result manifest
         env:
-          OPERATION: ${{ needs.verify.outputs.operation }}
           VERSION: ${{ needs.verify.outputs.version }}
           SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
           IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
           DEPLOYMENT_RESULT: ${{ needs.deploy.result }}
+          OPERATION: ${{ needs.verify.outputs.operation }}
         run: |
           python3 - <<'PY'
           import json
@@ -330,12 +264,13 @@ jobs:
           deployed = os.environ["DEPLOYMENT_RESULT"] == "success"
           result = {
               "repository": os.environ["GITHUB_REPOSITORY"],
+              "operation": os.environ["OPERATION"],
               "version": os.environ["VERSION"] or None,
               "tag": os.environ["VERSION"] or None,
               "sourceSha": os.environ["SOURCE_SHA"],
               "imageDigest": os.environ["IMAGE_DIGEST"] or None,
               "deploymentId": os.environ["GITHUB_RUN_ID"] if deployed else None,
-              "deploymentUrl": "https://ford-mcp.emme.business/mcp" if deployed else None,
+              "deploymentUrl": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}" if deployed else None,
           }
           Path(os.environ["RUNNER_TEMP"], "release-result.json").write_text(
               json.dumps(result, sort_keys=True) + "\n", encoding="utf-8"

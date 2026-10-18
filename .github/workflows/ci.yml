@@ -56,8 +56,8 @@ jobs:
       - name: Workflow and container contracts
         run: node --test scripts/container-contract.test.mjs
 
-      - name: API and MCP tests
-        run: npm test -- --run tests/api tests/mcp
+      - name: API tests
+        run: npm test -- --run tests/api
 
       - name: Run database migrations
         run: npm run migrate
@@ -71,7 +71,7 @@ jobs:
           FORD_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/ford_test
 
   container:
-    name: Build and smoke test OCI runtimes
+    name: Build and smoke test scheduler image
     needs: test
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -108,98 +108,9 @@ jobs:
           echo 'Scheduler did not report its configured monthly schedule.' >&2
           exit 1
 
-      - name: Smoke test the protected MCP HTTP command
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker run --detach --name ford-mcp-smoke \
-            --network host \
-            --env DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/ford_test \
-            --env FORD_BASE_URL=https://www.forduruapan.mx \
-            --env MCP_HTTP_HOST=0.0.0.0 \
-            --env MCP_HTTP_PORT=3001 \
-            --env MCP_HTTP_BEARER_TOKEN=ci-smoke-token \
-            --env MCP_HTTP_ALLOWED_HOSTS=127.0.0.1,localhost \
-            ford-scraping:ci node dist/src/cli.js mcp-http
-          trap 'docker rm --force ford-mcp-smoke >/dev/null 2>&1 || true' EXIT
-          ready=false
-          for attempt in $(seq 1 30); do
-            http_code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
-              http://127.0.0.1:3001/mcp || true)"
-            if [[ "$http_code" == 401 ]]; then
-              ready=true
-              break
-            fi
-            if [[ "$(docker inspect --format '{{.State.Running}}' ford-mcp-smoke)" != true ]]; then
-              docker logs ford-mcp-smoke
-              exit 1
-            fi
-            sleep 2
-          done
-          if [[ "$ready" != true ]]; then
-            docker logs ford-mcp-smoke
-            echo 'MCP HTTP endpoint did not return the expected unauthenticated 401.' >&2
-            exit 1
-          fi
-
-          docker exec -i ford-mcp-smoke node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-
-          const endpoint = 'http://127.0.0.1:3001/mcp';
-          const token = 'ci-smoke-token';
-          let sessionId;
-
-          async function send(message) {
-            const headers = {
-              accept: 'application/json, text/event-stream',
-              authorization: `Bearer ${token}`,
-              'content-type': 'application/json',
-            };
-            if (sessionId) headers['mcp-session-id'] = sessionId;
-
-            const response = await fetch(endpoint, {
-              method: 'POST',
-              headers,
-              body: JSON.stringify(message),
-            });
-            assert.ok(response.ok, `MCP request failed with HTTP ${response.status}`);
-            sessionId ??= response.headers.get('mcp-session-id') ?? undefined;
-
-            const body = await response.text();
-            if (!body) return [];
-            if (response.headers.get('content-type')?.includes('text/event-stream')) {
-              return body
-                .split(/\r?\n/)
-                .filter(line => line.startsWith('data: '))
-                .map(line => JSON.parse(line.slice('data: '.length)));
-            }
-            return [JSON.parse(body)];
-          }
-
-          const initialized = await send({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'initialize',
-            params: {
-              protocolVersion: '2025-11-25',
-              capabilities: {},
-              clientInfo: {name: 'github-actions-smoke', version: '1.0.0'},
-            },
-          });
-          const initialization = initialized.find(message => message.id === 1)?.result;
-          assert.equal(initialization?.serverInfo?.name, 'ford-uruapan-hybrid-search');
-
-          await send({jsonrpc: '2.0', method: 'notifications/initialized'});
-          const listed = await send({jsonrpc: '2.0', id: 2, method: 'tools/list'});
-          const tools = listed.find(message => message.id === 2)?.result?.tools ?? [];
-          const toolNames = new Set(tools.map(tool => tool.name));
-          assert.ok(toolNames.has('search_vehicles'), 'search_vehicles tool is missing');
-          assert.ok(toolNames.has('get_catalog_status'), 'get_catalog_status tool is missing');
-          console.log('MCP container initialization and tool listing passed.');
-          NODE
 
   publish:
-    name: Publish versioned MCP image
+    name: Publish versioned scraper image
     if: >-
       github.event_name == 'push' && github.ref_type == 'tag' &&
       startsWith(github.ref, 'refs/tags/v')
@@ -356,14 +267,14 @@ jobs:
             --source-digest "${SOURCE_SHA}" \
             --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/ci.yml"
 
-      - name: Summarize immutable MCP release
+      - name: Summarize immutable scraper image
         env:
           IMAGE: ${{ steps.image.outputs.image }}
           SOURCE_SHA: ${{ github.sha }}
           VERSION: ${{ github.ref_name }}
         run: |
           {
-            echo '### Ford-scraping MCP container'
+            echo '### Ford-scraping scheduler image'
             echo "- Version: ${VERSION}"
             echo "- Source: ${SOURCE_SHA}"
             echo "- Immutable image: ${IMAGE}"
