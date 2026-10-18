@@ -52,4 +52,16 @@ describe('scraper runtime contract', () => {
       "needs.verify.outputs.operation != 'deploy' || needs.image.result == 'success'",
     );
   });
+
+  it('passes the existing PostgreSQL Vault secret reference to the scheduler action', () => {
+    const release = readFileSync(releaseWorkflowPath, 'utf8');
+
+    expect(release).toContain(
+      'oci-blue-green@60e44cc9a508f7a8300656ff8149e32c0d540b18',
+    );
+    expect(release).toContain(
+      'scheduler-postgres-password-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}',
+    );
+    expect(release).not.toContain('FORD_CATALOG_PASSWORD');
+  });
 });
