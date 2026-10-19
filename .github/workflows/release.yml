@@ -228,7 +228,7 @@ jobs:
           host: ${{ vars.OCI_MCP_HOST }}
           user: ${{ vars.OCI_DEPLOY_USER }}
           ssh-private-key: ${{ secrets.OCI_MCP_SSH_PRIVATE_KEY }}
-          backup-ssh-private-key: ${{ secrets.OCI_DATA_SSH_PRIVATE_KEY }}
+          backup-ssh-private-key: ${{ secrets.OCI_MCP_SSH_PRIVATE_KEY }}
           ssh-known-hosts: ${{ secrets.OCI_SSH_KNOWN_HOSTS }}
           registry-username: ${{ github.repository_owner }}
           registry-token: ${{ secrets.GITHUB_TOKEN }}

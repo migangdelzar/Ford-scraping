@@ -76,4 +76,13 @@ describe('scraper runtime contract', () => {
       'scheduler-postgres-password-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}',
     );
   });
+
+  it('reuses the scheduler SSH identity for backups on the same data host', () => {
+    const release = readFileSync(releaseWorkflowPath, 'utf8');
+
+    expect(release).toContain(
+      'backup-ssh-private-key: ${{ secrets.OCI_MCP_SSH_PRIVATE_KEY }}',
+    );
+    expect(release).toMatch(/^ {10}backup-ssh-private-key:/m);
+  });
 });
