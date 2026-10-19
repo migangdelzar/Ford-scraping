@@ -113,6 +113,44 @@ describe('resolveRuntimeEnvironment', () => {
     );
   });
 
+  it('prefers a safe nested network code over the generic OCI federation error', async () => {
+    const networkError = Object.assign(new Error('private network detail'), {
+      code: 'ECONNRESET',
+    });
+    const fetchError = new TypeError('fetch failed', {cause: networkError});
+    const reader = {
+      async getSecretValue() {
+        throw {
+          code: -1,
+          message:
+            'Failed to fetch the token from auth server. Failed with error: TypeError: fetch failed',
+          cause: fetchError,
+        };
+      },
+    };
+
+    await expect(
+      resolveRuntimeEnvironment(
+        {
+          FORD_SECRETS_PROVIDER: 'oci-vault',
+          FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: databaseSecret,
+        },
+        reader,
+      ),
+    ).rejects.toThrow(
+      'OCI Vault secret retrieval failed for POSTGRES_PASSWORD (ECONNRESET)',
+    );
+    await expect(
+      resolveRuntimeEnvironment(
+        {
+          FORD_SECRETS_PROVIDER: 'oci-vault',
+          FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: databaseSecret,
+        },
+        reader,
+      ),
+    ).rejects.not.toThrow('private network detail');
+  });
+
   it('encodes a Vault password before constructing the database URL', async () => {
     const source = {
       FORD_SECRETS_PROVIDER: 'oci-vault',
