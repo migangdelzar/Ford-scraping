@@ -183,14 +183,12 @@ jobs:
       PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
       RUNTIME_VAULT_READY: ${{ vars.RUNTIME_VAULT_READY }}
       FORD_SECRETS_PROVIDER: ${{ vars.FORD_SECRETS_PROVIDER }}
-      POSTGRES_PASSWORD_SECRET_OCID: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}
     steps:
       - name: Fail clearly when production runtime is not ready
         run: |
           set -euo pipefail
           [[ "$PRODUCTION_DEPLOY_ENABLED" == 'true' ]] || { echo 'Production deploy gate is disabled.' >&2; exit 1; }
           [[ "$RUNTIME_VAULT_READY" == 'true' && "$FORD_SECRETS_PROVIDER" == 'oci-vault' ]] || { echo 'Runtime Vault readiness is not confirmed.' >&2; exit 1; }
-          [[ "$POSTGRES_PASSWORD_SECRET_OCID" =~ ^ocid1[.]vaultsecret[.][A-Za-z0-9.]+$ ]] || { echo 'PostgreSQL password Vault reference is not configured.' >&2; exit 1; }
 
   approval:
     name: Approve scraper scheduler production change

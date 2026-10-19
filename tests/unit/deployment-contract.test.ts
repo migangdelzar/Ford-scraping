@@ -64,4 +64,16 @@ describe('scraper runtime contract', () => {
     );
     expect(release).not.toContain('FORD_CATALOG_PASSWORD');
   });
+
+  it('validates the environment-scoped Vault reference in the deployment job', () => {
+    const release = readFileSync(releaseWorkflowPath, 'utf8');
+    const readinessStart = release.indexOf('production-readiness:');
+    const deployStart = release.indexOf('deploy:');
+    const readiness = release.slice(readinessStart, deployStart);
+
+    expect(readiness).not.toContain('POSTGRES_PASSWORD_SECRET_OCID');
+    expect(release).toContain(
+      'scheduler-postgres-password-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}',
+    );
+  });
 });
