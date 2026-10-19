@@ -112,7 +112,7 @@ test('Node has no MCP server/client and its release workflow only deploys the sc
   assert.match(release, /target: ford-scraper-scheduler/);
   assert.match(
     release,
-    /oci-blue-green@fcaa1cf76d0607f94833c429d761e706ff7861c7/,
+    /oci-blue-green@fe9ab6ae7b590b5999338e9078ea1154759b6b85/,
   );
   assert.match(release, /secrets-provider: oci-vault/);
   assert.doesNotMatch(release, /target: ford-mcp|mcp-private-ip|mcp-http/i);

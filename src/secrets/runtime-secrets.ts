@@ -48,9 +48,11 @@ export async function resolveRuntimeEnvironment(
 
       try {
         resolved[mapping.target] = await reader.getSecretValue(secretId);
-      } catch {
+      } catch (error) {
+        const code = safeErrorCode(error);
+        const detail = code ? ` (${code})` : '';
         throw new Error(
-          `OCI Vault secret retrieval failed for ${mapping.target}`,
+          `OCI Vault secret retrieval failed for ${mapping.target}${detail}`,
         );
       }
     }
@@ -95,6 +97,21 @@ function isRequired(
     return Boolean(environment.LANGFUSE_PUBLIC_KEY);
   }
   return environment.EMBEDDING_PROVIDER === 'openai';
+}
+
+function safeErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+
+  const candidate = error as {code?: unknown; cause?: unknown};
+  if (
+    typeof candidate.code === 'string' &&
+    /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(candidate.code)
+  ) {
+    return candidate.code;
+  }
+  return candidate.cause === undefined
+    ? undefined
+    : safeErrorCode(candidate.cause);
 }
 
 function buildDatabaseUrl(environment: NodeJS.ProcessEnv): string {

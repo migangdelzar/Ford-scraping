@@ -66,6 +66,29 @@ describe('resolveRuntimeEnvironment', () => {
     expect(reader.requests).toEqual([]);
   });
 
+  it('reports a safe Vault transport error code without exposing the error message', async () => {
+    const sensitiveMessage = 'transport details containing secret content';
+    const transportError = Object.assign(new Error(sensitiveMessage), {
+      code: 'ENETUNREACH',
+    });
+    const reader = {
+      async getSecretValue() {
+        throw new TypeError('fetch failed', {cause: transportError});
+      },
+    };
+    const source = {
+      FORD_SECRETS_PROVIDER: 'oci-vault',
+      FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: databaseSecret,
+    };
+
+    await expect(resolveRuntimeEnvironment(source, reader)).rejects.toThrow(
+      'OCI Vault secret retrieval failed for POSTGRES_PASSWORD (ENETUNREACH)',
+    );
+    await expect(resolveRuntimeEnvironment(source, reader)).rejects.not.toThrow(
+      sensitiveMessage,
+    );
+  });
+
   it('encodes a Vault password before constructing the database URL', async () => {
     const source = {
       FORD_SECRETS_PROVIDER: 'oci-vault',
