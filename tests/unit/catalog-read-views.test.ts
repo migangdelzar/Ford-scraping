@@ -1,4 +1,4 @@
-import {readFileSync} from 'node:fs';
+import {existsSync, readFileSync} from 'node:fs';
 import {describe, expect, it} from 'vitest';
 
 const migration = readFileSync(
@@ -19,6 +19,44 @@ const comparisonLinkMigration = readFileSync(
 );
 
 describe('MÍA catalog read-view migration', () => {
+  it('adds a source-backed document and embedding view in migration 026', () => {
+    const path = 'db/migrations/026_catalog_documents_v1.sql';
+    expect(existsSync(path)).toBe(true);
+    const documentsMigration = readFileSync(path, 'utf8');
+
+    expect(documentsMigration).toMatch(
+      /CREATE OR REPLACE VIEW ford_read\.catalog_documents_v1\s+WITH\s*\(\s*security_barrier\s*=\s*true\s*\)/i,
+    );
+    for (const column of [
+      'document_id',
+      'document_key',
+      'model_id',
+      'model_year_id',
+      'variant_id',
+      'offer_id',
+      'document_type',
+      'semantic_content',
+      'search_vector',
+      'embedding',
+      'embedding_model',
+      'embedding_status',
+      'source_url',
+      'observed_at',
+    ]) {
+      expect(documentsMigration).toMatch(new RegExp(`\\bAS ${column}\\b`, 'i'));
+    }
+    expect(documentsMigration).toMatch(/LEFT JOIN ford\.document_embeddings/i);
+    expect(documentsMigration).toMatch(/source\.url\s+IS\s+NOT\s+NULL/i);
+    expect(documentsMigration).toMatch(/source\.crawled_at\s+IS\s+NOT\s+NULL/i);
+    expect(documentsMigration).toMatch(
+      /btrim\(coalesce\(nullif\(btrim\(d\.semantic_content\),\s*''\),\s*d\.content\)\)\s*<>\s*''/i,
+    );
+    expect(documentsMigration).not.toMatch(
+      /\b(INSERT|UPDATE|DELETE|DROP TABLE|GRANT|REVOKE)\b/i,
+    );
+    expect(documentsMigration).not.toMatch(/CREATE TABLE/i);
+  });
+
   it('adds parity views in a forward migration without rewriting applied migration 022', () => {
     expect(migration).not.toMatch(
       /vehicle_facts_v2|offers_v1|vehicle_variants_v1/i,

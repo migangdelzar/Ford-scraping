@@ -151,6 +151,174 @@ describe('Read-only catalog views', () => {
     expect(dealerPromotions.rows[0].count).toBe(0);
   });
 
+  it('projects source-backed document selectors and explicit embedding readiness', async () => {
+    const fixtureResult = await pool.query<{
+      model_id: string;
+      model_year_id: string;
+      variant_id: string;
+      page_id: number;
+      offer_id: string;
+    }>(
+      `SELECT m.id::text AS model_id, my.id::text AS model_year_id,
+              v.id::text AS variant_id, p.id AS page_id, o.id::text AS offer_id
+       FROM ford.models m
+       JOIN ford.model_years my ON my.model_id = m.id
+       JOIN ford.variants v ON v.model_year_id = my.id
+       JOIN ford.pages p ON p.url = 'https://www.ford.mx/vehiculos/ranger/'
+       JOIN ford.offers o ON o.content_hash = 'fixture-promotion-hash'
+       WHERE m.normalized_name = 'fixture-contract-ranger'`,
+    );
+    const fixture = fixtureResult.rows[0];
+    expect(fixture).toBeDefined();
+    if (!fixture) throw new Error('catalog document fixture is missing');
+
+    const insertDocument = async (
+      key: string,
+      pageId: number | null,
+      offerId?: string,
+    ) => {
+      const result = await pool.query<{id: string}>(
+        `INSERT INTO ford.documents
+           (model_id, model_year_id, variant_id, offer_id, page_id, document_type,
+            document_key, title, content, content_hash, semantic_content, semantic_content_hash)
+         VALUES ($1, $2, $3, $4, $5, 'vehicle_profile', $6, 'Ranger semantic fixture',
+                 'Ficha de Ranger, motor y potencia.', $7, 'Ficha semántica de Ranger y potencia.', $8)
+         RETURNING id::text`,
+        [
+          fixture.model_id,
+          fixture.model_year_id,
+          fixture.variant_id,
+          offerId ?? null,
+          pageId,
+          key,
+          `${key}-content-hash`,
+          `${key}-semantic-hash`,
+        ],
+      );
+      return result.rows[0].id;
+    };
+    const vector = `[${Array.from({length: 1024}, (_, index) =>
+      index === 0 ? 1 : 0,
+    ).join(',')}]`;
+    const cases: Array<{
+      key: string;
+      status?: string;
+      model?: string;
+      hasEmbedding: boolean;
+    }> = [
+      {key: 'ready', status: 'ready', model: 'bge-m3', hasEmbedding: true},
+      {key: 'pending', status: 'pending', model: 'bge-m3', hasEmbedding: false},
+      {
+        key: 'incompatible',
+        status: 'ready',
+        model: 'nomic-embed-text',
+        hasEmbedding: true,
+      },
+      {key: 'missing-embedding', hasEmbedding: false},
+    ];
+    for (const item of cases) {
+      const documentId = await insertDocument(
+        `fixture-mia-embedding-${item.key}`,
+        fixture.page_id,
+        item.key === 'ready' ? fixture.offer_id : undefined,
+      );
+      if (item.model) {
+        await pool.query(
+          `INSERT INTO ford.document_embeddings
+             (document_id, embedding, embedding_model, status)
+           VALUES ($1, $2::vector, $3, $4)`,
+          [
+            documentId,
+            item.hasEmbedding ? vector : null,
+            item.model,
+            item.status,
+          ],
+        );
+      }
+    }
+    const noSourceId = await insertDocument(
+      'fixture-mia-embedding-no-source',
+      null,
+    );
+    await pool.query(
+      `INSERT INTO ford.document_embeddings
+         (document_id, embedding, embedding_model, status)
+       VALUES ($1, $2::vector, 'bge-m3', 'ready')`,
+      [noSourceId, vector],
+    );
+
+    const result = await pool.query<{
+      document_key: string;
+      model_id: string;
+      model_year_id: string;
+      variant_id: string;
+      offer_id: string | null;
+      document_type: string;
+      embedding_model: string | null;
+      embedding_status: string | null;
+      has_embedding: boolean;
+      has_search_vector: boolean;
+      source_url: string;
+      observed_at: string;
+    }>(
+      `SELECT document_key, model_id::text, model_year_id::text, variant_id::text,
+              offer_id::text, document_type, embedding_model, embedding_status,
+              embedding IS NOT NULL AS has_embedding,
+              search_vector IS NOT NULL AS has_search_vector,
+              source_url, observed_at::text
+       FROM ford_read.catalog_documents_v1
+       WHERE document_key LIKE 'fixture-mia-embedding-%'
+       ORDER BY document_key`,
+    );
+
+    expect(result.rows.map(row => row.document_key)).toEqual([
+      'fixture-mia-embedding-incompatible',
+      'fixture-mia-embedding-missing-embedding',
+      'fixture-mia-embedding-pending',
+      'fixture-mia-embedding-ready',
+    ]);
+    for (const row of result.rows) {
+      expect(row).toMatchObject({
+        model_id: fixture.model_id,
+        model_year_id: fixture.model_year_id,
+        variant_id: fixture.variant_id,
+        document_type: 'vehicle_profile',
+        has_search_vector: true,
+        source_url: 'https://www.ford.mx/vehiculos/ranger/',
+        observed_at: '2026-10-16 10:00:00+00',
+      });
+    }
+    expect(
+      result.rows.find(row => row.document_key.endsWith('-ready')),
+    ).toMatchObject({
+      offer_id: fixture.offer_id,
+      embedding_model: 'bge-m3',
+      embedding_status: 'ready',
+      has_embedding: true,
+    });
+    expect(
+      result.rows.find(row => row.document_key.endsWith('-pending')),
+    ).toMatchObject({
+      embedding_model: 'bge-m3',
+      embedding_status: 'pending',
+      has_embedding: false,
+    });
+    expect(
+      result.rows.find(row => row.document_key.endsWith('-incompatible')),
+    ).toMatchObject({
+      embedding_model: 'nomic-embed-text',
+      embedding_status: 'ready',
+      has_embedding: true,
+    });
+    expect(
+      result.rows.find(row => row.document_key.endsWith('-missing-embedding')),
+    ).toMatchObject({
+      embedding_model: null,
+      embedding_status: null,
+      has_embedding: false,
+    });
+  });
+
   it('exposes links, images, comparisons, provenance, and aggregate status as read-only views', async () => {
     const rangerPage = await pool.query<{id: number}>(
       "SELECT id FROM ford.pages WHERE url = 'https://www.ford.mx/vehiculos/ranger/'",
