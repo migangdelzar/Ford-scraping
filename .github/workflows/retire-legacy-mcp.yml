@@ -1,0 +1,121 @@
+name: Retire legacy Ford MCP services
+run-name: Retire legacy MCP runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type the exact retirement confirmation after reviewing the MCP runtime inventory.
+        required: true
+        type: choice
+        options: [cancel, RETIRE_FORD_MCP]
+        default: cancel
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ford-scraper-scheduler-production
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate protected MCP retirement request
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      RELEASE_REF: ${{ github.ref }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+      PRODUCTION_DEPLOY_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
+      RUNTIME_VAULT_READY: ${{ vars.RUNTIME_VAULT_READY }}
+    steps:
+      - name: Require a confirmed dispatch from main and active production gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" == 'refs/heads/main' ]] || {
+            echo 'Dispatch MCP retirement from main.' >&2
+            exit 1
+          }
+          [[ "$CONFIRMATION" == 'RETIRE_FORD_MCP' ]] || {
+            echo 'Select RETIRE_FORD_MCP to continue.' >&2
+            exit 1
+          }
+          [[ "$PRODUCTION_DEPLOY_ENABLED" == 'true' && "$RUNTIME_VAULT_READY" == 'true' ]] || {
+            echo 'Production release gates are not active.' >&2
+            exit 1
+          }
+
+  approval:
+    name: Approve legacy MCP retirement
+    needs: validate
+    runs-on: ubuntu-24.04
+    environment: manual-release-approval
+    permissions:
+      contents: read
+    steps:
+      - name: Confirm approved removal scope
+        run: echo 'Approved scope removes only MCP API/proxy containers; scraper scheduler and Ollama are preserved.'
+
+  retire:
+    name: Remove MCP services and preserve scraper dependencies
+    needs: [validate, approval]
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      MCP_HOST: ${{ vars.OCI_MCP_HOST }}
+      SSH_USER: ${{ vars.OCI_DEPLOY_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.OCI_MCP_SSH_PRIVATE_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.OCI_SSH_KNOWN_HOSTS }}
+    steps:
+      - name: Check out the approved retirement script from main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Install pinned SSH credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$MCP_HOST" && -n "$SSH_USER" && -n "$SSH_PRIVATE_KEY" && -n "$SSH_KNOWN_HOSTS" ]] || {
+            echo 'MCP retirement SSH configuration is incomplete.' >&2
+            exit 1
+          }
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          install -m 0600 /dev/null "$RUNNER_TEMP/ssh/mcp-host-key"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/ssh/mcp-host-key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/ssh/known_hosts"
+          chmod 0600 "$RUNNER_TEMP/ssh/known_hosts"
+          bash -n scripts/retire-legacy-mcp.sh
+
+      - name: Retire only MCP API and proxy containers on emme-2
+        id: retire
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$RUNNER_TEMP/ssh/mcp-host-key" \
+            -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$MCP_HOST" 'bash -s' < scripts/retire-legacy-mcp.sh
+
+      - name: Summarize protected MCP retirement
+        if: always()
+        env:
+          RETIRE_OUTCOME: ${{ steps.retire.outcome }}
+        run: |
+          {
+            echo '### Legacy MCP retirement'
+            echo "- Retirement step outcome: ${RETIRE_OUTCOME}"
+            if [[ "$RETIRE_OUTCOME" == 'success' ]]; then
+              echo '- Removed only mcp-blue, mcp-green, legacy mcp, and mcp-proxy containers.'
+              echo '- Preserved cloudflared connector, scraper scheduler, Ollama/model, data_default, and Ollama volume.'
+              echo '- No database, image, volume, Vault secret, or GitHub credential was deleted.'
+            else
+              echo '- Retirement did not complete; inspect remote step output before retrying.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
