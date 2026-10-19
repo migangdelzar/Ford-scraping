@@ -113,6 +113,9 @@ function safeErrorCode(error: unknown): string | undefined {
   ) {
     return candidate.code;
   }
+  const causeCode =
+    candidate.cause === undefined ? undefined : safeErrorCode(candidate.cause);
+  if (causeCode) return causeCode;
   if (
     typeof candidate.message === 'string' &&
     candidate.message.includes(
@@ -127,9 +130,7 @@ function safeErrorCode(error: unknown): string | undefined {
     );
     if (status) return `OCI_AUTH_HTTP_${status[1]}`;
   }
-  return candidate.cause === undefined
-    ? undefined
-    : safeErrorCode(candidate.cause);
+  return undefined;
 }
 
 function buildDatabaseUrl(environment: NodeJS.ProcessEnv): string {
