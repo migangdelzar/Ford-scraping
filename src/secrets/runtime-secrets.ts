@@ -102,12 +102,30 @@ function isRequired(
 function safeErrorCode(error: unknown): string | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
 
-  const candidate = error as {code?: unknown; cause?: unknown};
+  const candidate = error as {
+    code?: unknown;
+    cause?: unknown;
+    message?: unknown;
+  };
   if (
     typeof candidate.code === 'string' &&
     /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(candidate.code)
   ) {
     return candidate.code;
+  }
+  if (
+    typeof candidate.message === 'string' &&
+    candidate.message.includes(
+      'Failed to fetch the token from auth server. Failed with error: TypeError: fetch failed',
+    )
+  ) {
+    return 'OCI_AUTH_FETCH_FAILED';
+  }
+  if (typeof candidate.message === 'string') {
+    const status = candidate.message.match(
+      /Failed to fetch the token from auth server\. Response received but failed with status: ([0-9]{3})/,
+    );
+    if (status) return `OCI_AUTH_HTTP_${status[1]}`;
   }
   return candidate.cause === undefined
     ? undefined

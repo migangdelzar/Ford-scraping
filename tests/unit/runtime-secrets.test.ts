@@ -89,6 +89,30 @@ describe('resolveRuntimeEnvironment', () => {
     );
   });
 
+  it('maps OCI federation fetch failures to a safe diagnostic code', async () => {
+    const reader = {
+      async getSecretValue() {
+        throw {
+          code: -1,
+          message:
+            'Failed to fetch the token from auth server. Failed with error: TypeError: fetch failed',
+        };
+      },
+    };
+
+    await expect(
+      resolveRuntimeEnvironment(
+        {
+          FORD_SECRETS_PROVIDER: 'oci-vault',
+          FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD: databaseSecret,
+        },
+        reader,
+      ),
+    ).rejects.toThrow(
+      'OCI Vault secret retrieval failed for POSTGRES_PASSWORD (OCI_AUTH_FETCH_FAILED)',
+    );
+  });
+
   it('encodes a Vault password before constructing the database URL', async () => {
     const source = {
       FORD_SECRETS_PROVIDER: 'oci-vault',
