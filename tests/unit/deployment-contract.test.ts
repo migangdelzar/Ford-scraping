@@ -57,7 +57,7 @@ describe('scraper runtime contract', () => {
     const release = readFileSync(releaseWorkflowPath, 'utf8');
 
     expect(release).toContain(
-      'oci-blue-green@fe9ab6ae7b590b5999338e9078ea1154759b6b85',
+      'oci-blue-green@a878ad1ba1dd4a25ef814ea4b69ac817ae32165a',
     );
     expect(release).toContain(
       'scheduler-postgres-password-secret-ocid: ${{ vars.FORD_VAULT_SECRET_OCID_POSTGRES_PASSWORD }}',
