@@ -124,3 +124,65 @@ test('Node has no MCP server/client and its release workflow only deploys the sc
   assert.match(release, /run-name:.*Release Ford scraper scheduler/);
   assert.doesNotMatch(readme, /npm run dev -- mcp|MCP server exposes/i);
 });
+
+test('legacy MCP retirement is protected and preserves scraper dependencies', async () => {
+  const workflowPath = '.github/workflows/retire-legacy-mcp.yml';
+  const scriptPath = 'scripts/retire-legacy-mcp.sh';
+  assert.equal(
+    existsSync(workflowPath),
+    true,
+    'protected retirement workflow must exist',
+  );
+  assert.equal(
+    existsSync(scriptPath),
+    true,
+    'target-scoped retirement script must exist',
+  );
+  const workflow = await read(workflowPath);
+  const script = await read(scriptPath);
+
+  assert.match(workflow, /workflow_dispatch/);
+  assert.doesNotMatch(workflow, /^ {2}push:/m);
+  assert.match(workflow, /RETIRE_FORD_MCP/);
+  assert.match(workflow, /environment: manual-release-approval/);
+  assert.match(workflow, /environment: production/);
+  assert.match(workflow, /vars\.OCI_MCP_HOST/);
+  assert.match(workflow, /secrets\.OCI_MCP_SSH_PRIVATE_KEY/);
+  assert.match(workflow, /PRODUCTION_DEPLOY_ENABLED/);
+  assert.match(workflow, /RUNTIME_VAULT_READY/);
+  assert.match(workflow, /retire-legacy-mcp\.sh/);
+
+  const targetMatch = script.match(/RETIRE_SERVICES=\(([^)]*)\)/);
+  assert.ok(
+    targetMatch,
+    'retirement must use an explicit Compose service allowlist',
+  );
+  assert.deepEqual(targetMatch[1].trim().split(/\s+/), [
+    'mcp-blue',
+    'mcp-green',
+    'mcp',
+    'mcp-proxy',
+  ]);
+  assert.doesNotMatch(targetMatch[1], /scheduler|ollama|cloudflared/);
+  assert.match(script, /ford-scraping-scheduler/);
+  assert.match(script, /"\$service" == scheduler/);
+  assert.match(script, /"\$service" == ollama/);
+  assert.match(script, /ford-mcp_ollama-data/);
+  assert.match(script, /pg_isready/);
+  assert.match(
+    script,
+    /for\s+target_service\s+in\s+"\$\{RETIRE_SERVICES\[@\]\}"/,
+  );
+  assert.match(
+    script,
+    /docker\s+stop\s+--time\s+30\s+"\$\{target_ids\[\$index\]\}"/,
+  );
+  assert.match(script, /docker rm "\$\{target_ids\[\$index\]\}"/);
+  assert.match(script, /original_scheduler_id/);
+  assert.match(script, /original_ollama_id/);
+  assert.match(script, /for port in 3001 3101 3102/);
+  assert.match(script, /verify_mcp_listeners_closed/);
+  assert.match(script, /Cloudflared, MCP environment\/config files.*preserved/);
+  assert.doesNotMatch(script, /docker\s+compose\s+.*down|docker\s+volume\s+rm/);
+  assert.doesNotMatch(script, /\.Config\.Env|printenv/);
+});
