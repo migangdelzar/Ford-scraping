@@ -221,7 +221,7 @@ jobs:
       packages: read
     steps:
       - name: Deploy private scheduler through the shared OCI action
-        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@60e44cc9a508f7a8300656ff8149e32c0d540b18
+        uses: migangdelzar/Ford-oci-deployment-action/.github/actions/oci-blue-green@387d85ecd3a6b1bb759a74cb7f75079a77839ebd
         with:
           target: ford-scraper-scheduler
           operation: ${{ needs.verify.outputs.operation }}
