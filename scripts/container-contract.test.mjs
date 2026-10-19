@@ -142,7 +142,7 @@ test('legacy MCP retirement is protected and preserves scraper dependencies', as
   const script = await read(scriptPath);
 
   assert.match(workflow, /workflow_dispatch/);
-  assert.doesNotMatch(workflow, /^  push:/m);
+  assert.doesNotMatch(workflow, /^ {2}push:/m);
   assert.match(workflow, /RETIRE_FORD_MCP/);
   assert.match(workflow, /environment: manual-release-approval/);
   assert.match(workflow, /environment: production/);
@@ -171,24 +171,18 @@ test('legacy MCP retirement is protected and preserves scraper dependencies', as
   assert.match(script, /pg_isready/);
   assert.match(
     script,
-    /for target_service in "\$\{RETIRE_SERVICES\[@\]\}"/,
+    /for\s+target_service\s+in\s+"\$\{RETIRE_SERVICES\[@\]\}"/,
   );
   assert.match(
     script,
-    /docker stop --time 30 "\$\{target_ids\[\$index\]\}"/,
+    /docker\s+stop\s+--time\s+30\s+"\$\{target_ids\[\$index\]\}"/,
   );
   assert.match(script, /docker rm "\$\{target_ids\[\$index\]\}"/);
   assert.match(script, /original_scheduler_id/);
   assert.match(script, /original_ollama_id/);
   assert.match(script, /for port in 3001 3101 3102/);
   assert.match(script, /verify_mcp_listeners_closed/);
-  assert.match(
-    script,
-    /Cloudflared, MCP environment\/config files.*preserved/,
-  );
-  assert.doesNotMatch(
-    script,
-    /docker compose .*down|docker volume rm/,
-  );
+  assert.match(script, /Cloudflared, MCP environment\/config files.*preserved/);
+  assert.doesNotMatch(script, /docker\s+compose\s+.*down|docker\s+volume\s+rm/);
   assert.doesNotMatch(script, /\.Config\.Env|printenv/);
 });
